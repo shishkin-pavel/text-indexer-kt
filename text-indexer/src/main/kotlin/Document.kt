@@ -1,40 +1,34 @@
+import kotlinx.coroutines.*
 import org.mozilla.universalchardet.UniversalDetector
 import java.io.File
 import java.io.FileInputStream
 import java.lang.Exception
 import java.nio.charset.Charset
+import kotlin.coroutines.coroutineContext
 
 class Document(val file: File) {
-    val charset: Charset
+    private var index: Index<CharIndex.LinePos>? = null
 
-    fun detectCharset(): String? {
-        val buf = ByteArray(4096)
-        val fis = FileInputStream(file)
-        val detector = UniversalDetector(null)
+    private suspend fun buildIndex(): Index<CharIndex.LinePos> {
+        val index = CharIndex()
+        val tokenizer = Tokenizer()
 
-        var nread: Int
-        while (fis.read(buf).also { nread = it } > 0 && !detector.isDone) {
-            detector.handleData(buf, 0, nread)
+        val scope = CoroutineScope(Dispatchers.IO)
+        val tch = tokenizer.tokenize(file, scope)
+        for ((token, pos) in tch) {
+            index.addToken(token, pos)
         }
-
-        detector.dataEnd()
-        val encoding = detector.detectedCharset
-        detector.reset()
-
-        fis.close()
-        return encoding
+        return index
     }
 
-    init {
-        val detectedCharset = detectCharset()
-        val charset = Charset.availableCharsets()[detectedCharset]
-        if (charset == null) {
-            throw Exception("no suitable charset found for $detectedCharset")
-        } else {
-            this.charset = charset
+    private suspend fun getIndex(): Index<CharIndex.LinePos> {
+        if (index == null) {
+            index = buildIndex()
         }
+        return index!!
     }
 
-    fun test() {
+    suspend fun queryString(s: String): ArrayList<CharIndex.LinePos> {
+        return getIndex().getPositions(s)
     }
 }

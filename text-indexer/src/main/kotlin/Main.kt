@@ -14,6 +14,11 @@ fun main(args: Array<String>) {
 //
 //    println("press enter to exit")
 //    readln()
-    val f = File("test/война_и_мир.txt")
-    val d = Document(f)
+    runBlocking {
+//        val f = File("test/test.txt")
+        val f = File("test/война_и_мир.txt")
+        val d = Document(f)
+        val r = d.queryString("неожиданно")
+        println("${r.size}, $r")
+    }
 }
