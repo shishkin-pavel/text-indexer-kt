@@ -8,6 +8,7 @@ import java.nio.charset.Charset
 
 class Tokenizer {
     private val punctuationInWord = setOf('\'', '-', '_')
+    private val detector = UniversalDetector(null)
 
     private fun validWordChar(c: Char): Boolean {
         return c.isLetterOrDigit() || punctuationInWord.contains(c)
@@ -16,7 +17,6 @@ class Tokenizer {
     private fun detectCharset(file: File): Charset {
         val buf = ByteArray(4096)
         val fis = FileInputStream(file)
-        val detector = UniversalDetector(null)
 
         var totalRead = 0
         var nread: Int
@@ -26,7 +26,10 @@ class Tokenizer {
 
         detector.dataEnd()
         val encoding = detector.detectedCharset
-        println("charset: $encoding, detected after $totalRead bytes")
+        if (encoding == null) {
+            println("encoding was not detected, UTF-8 will be used")
+            return Charsets.UTF_8
+        }
         detector.reset()
 
         fis.close()
@@ -35,6 +38,8 @@ class Tokenizer {
 
         if (charset == null) {
             println("no suitable charset supported, UTF-8 will be used")
+        } else {
+            println("charset: $encoding, detected after $totalRead bytes")
         }
 
         return charset ?: Charsets.UTF_8
@@ -76,6 +81,7 @@ class Tokenizer {
                 }
             }
             ch.close()
+            println("${file.path} should be closed")
         }
         return ch
     }
