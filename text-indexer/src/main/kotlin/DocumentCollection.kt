@@ -3,8 +3,13 @@ import kotlinx.coroutines.channels.Channel
 import java.nio.file.Path
 import kotlinx.coroutines.*
 
-class DocumentCollection(rootPath: Path, scope: CoroutineScope) {
-    private val documents = HashMap<Path, Document>()
+class DocumentCollection<TPos>(
+    rootPath: Path,
+    private val tokenizer: Tokenizer<TPos>,
+    private val emptyIndex: () -> Index<TPos>,
+    scope: CoroutineScope
+) {
+    private val documents = HashMap<Path, Document<TPos>>()
     private val singleThreadContext = newSingleThreadContext("file watcher thread")
     private val fileWatcher = FileWatcher()
 
@@ -21,7 +26,7 @@ class DocumentCollection(rootPath: Path, scope: CoroutineScope) {
         for (fwe in fileWatchEvents) {
             when (fwe.kind) {
                 FileWatchEvent.Kind.Created -> {
-                    val doc = Document(fwe.path.toFile())
+                    val doc = Document(fwe.path.toFile(), tokenizer, emptyIndex)
                     documents[fwe.path] = doc
                 }
 
@@ -38,7 +43,7 @@ class DocumentCollection(rootPath: Path, scope: CoroutineScope) {
         }
     }
 
-    suspend fun query(str: String): List<Pair<Path, ArrayList<CharIndex.LinePos>>> {
+    suspend fun query(str: String): List<Pair<Path, ArrayList<TPos>>> {
         return coroutineScope {
             async(Dispatchers.Default) {
                 documents.values.map {

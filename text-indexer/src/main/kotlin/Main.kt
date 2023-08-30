@@ -7,7 +7,13 @@ fun main(args: Array<String>) {
         if (args.size != 1) {
             println("usage: <binary> <path to watched directory>")
         }
-        val docColl = DocumentCollection(Path(args[0]), CoroutineScope(Dispatchers.Default))
+        val docColl =
+            DocumentCollection(
+                Path(args[0]),
+                SimpleWordTokenizer(),
+                { CharIndex() },    // TODO looks dirty, is there better way like C# 'new generic type constraint' or Rust "static" trait members?
+                CoroutineScope(Dispatchers.Default)
+            )
         var q = readln()
         while (q != "exit") {
             val res = docColl.query(q)

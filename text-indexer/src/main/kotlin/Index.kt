@@ -53,6 +53,7 @@ class Trie<TPos> {
     }
 }
 
+// can be useful for search & replace purposes
 class ByteIndex : Index<ByteIndex.BytePos> {
     data class BytePos(val byteStart: UInt, val byteLen: UInt)
 

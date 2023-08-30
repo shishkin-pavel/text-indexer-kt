@@ -2,9 +2,10 @@ import kotlinx.coroutines.*
 import java.io.File
 import java.lang.Exception
 
-class Document(val file: File) : AutoCloseable {
+class Document<TPos>(val file: File, var tokenizer: Tokenizer<TPos>, val emptyIndex: () -> Index<TPos>) :
+    AutoCloseable {
     private val scope = CoroutineScope(Dispatchers.IO)
-    private var deferredIndex: CompletableDeferred<Index<CharIndex.LinePos>> = CompletableDeferred()
+    private var deferredIndex: CompletableDeferred<Index<TPos>> = CompletableDeferred()
     private var indexBuildJob: Job? = null
     private var isClosed = false
 
@@ -14,9 +15,9 @@ class Document(val file: File) : AutoCloseable {
 
     private fun buildIndex() {
         indexBuildJob = scope.launch {
-            val index = CharIndex()
-            val tokenizer = Tokenizer()
+            val index: Index<TPos> = emptyIndex()
 
+//            val tokenizer = SimpleWordTokenizer()
             val scope = CoroutineScope(Dispatchers.IO)
             val tch = tokenizer.tokenize(file, scope)
             for ((token, pos) in tch) {
@@ -38,7 +39,7 @@ class Document(val file: File) : AutoCloseable {
         buildIndex()
     }
 
-    private suspend fun getIndex(): Index<CharIndex.LinePos> {
+    private suspend fun getIndex(): Index<TPos> {
         while (!isClosed) {
             try {
                 return deferredIndex.await()
@@ -49,7 +50,7 @@ class Document(val file: File) : AutoCloseable {
         throw Exception("document was disposed")    // TODO closing queried document can introduce several problems, lets deal with that later
     }
 
-    suspend fun queryString(s: String): ArrayList<CharIndex.LinePos> {
+    suspend fun queryString(s: String): ArrayList<TPos> {
         return getIndex().getPositions(s)
     }
 

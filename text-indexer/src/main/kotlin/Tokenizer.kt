@@ -5,15 +5,22 @@ import java.io.File
 import java.io.FileInputStream
 import java.nio.charset.Charset
 
-class Tokenizer {
+interface Tokenizer<TPos> {
+    fun tokenize(
+        file: File,
+        scope: CoroutineScope
+    ): Channel<Pair<String, TPos>>
+}
+
+class SimpleWordTokenizer : Tokenizer<CharIndex.LinePos> {
     private val punctuationInWord = setOf('\'', '-', '_')
-    private val detector = UniversalDetector(null)
 
     private fun validWordChar(c: Char): Boolean {
         return c.isLetterOrDigit() || punctuationInWord.contains(c)
     }
 
     private fun detectCharset(file: File): Charset {
+        val detector = UniversalDetector(null)
         val buf = ByteArray(4096)
         val fis = FileInputStream(file)
 
@@ -44,7 +51,7 @@ class Tokenizer {
         return charset ?: Charsets.UTF_8
     }
 
-    fun tokenize(
+    override fun tokenize(
         file: File,
         scope: CoroutineScope
     ): Channel<Pair<String, CharIndex.LinePos>> {
