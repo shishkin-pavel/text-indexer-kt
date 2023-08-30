@@ -2,6 +2,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withContext
 import java.nio.file.*
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.absolute
 
 data class FileWatchEvent(
@@ -17,9 +18,12 @@ data class FileWatchEvent(
 
 class FileWatcher {
     private val watchService: WatchService = FileSystems.getDefault().newWatchService()
-    private val directories = HashMap<Path, WatchKey>()
-    private val key2dir = HashMap<WatchKey, Path>()
     val eventChannel = Channel<FileWatchEvent>()
+
+    // using concurrent hash map is not necessary in current situation because we always access that maps from single-threaded coroutine context
+    // but if is safer to switch now
+    private val directories = ConcurrentHashMap<Path, WatchKey>()
+    private val key2dir = ConcurrentHashMap<WatchKey, Path>()
 
     private suspend fun fileCreated(absolutePath: Path) {
         eventChannel.send(FileWatchEvent(absolutePath, FileWatchEvent.Kind.Created))

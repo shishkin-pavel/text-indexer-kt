@@ -2,6 +2,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import java.nio.file.Path
 import kotlinx.coroutines.*
+import java.util.concurrent.ConcurrentHashMap
 
 class DocumentCollection<TPos>(
     rootPath: Path,
@@ -9,7 +10,7 @@ class DocumentCollection<TPos>(
     private val emptyIndex: () -> Index<TPos>,
     scope: CoroutineScope
 ) {
-    private val documents = HashMap<Path, Document<TPos>>()
+    private val documents = ConcurrentHashMap<Path, Document<TPos>>()
     private val singleThreadContext = newSingleThreadContext("file watcher thread")
     private val fileWatcher = FileWatcher()
 
