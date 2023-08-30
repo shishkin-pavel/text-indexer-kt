@@ -1,24 +1,26 @@
 import java.io.File
 import kotlinx.coroutines.*
-
+import java.lang.Exception
 
 fun main(args: Array<String>) {
-//    val path = File(args[0]);
-//    println("path: $path")
-//    GlobalScope.launch {
-//        val watcherCh = path.asWatchChannel();
-//        for (x in watcherCh) {
-//            println(x)
-//        }
-//    }
-//
-//    println("press enter to exit")
-//    readln()
     runBlocking {
-//        val f = File("test/test.txt")
         val f = File("test/война_и_мир.txt")
         val d = Document(f)
-        val r = d.queryString("неожиданно")
-        println("${r.size}, $r")
+        launch(Dispatchers.Default) {
+            try {
+                println("query")
+                val r = d.queryString("неожиданно")
+                println("${r.size}, $r")
+            } catch (e: Exception) {
+                println(e)
+            }
+
+        }
+
+        while (true) {
+            val x = readln()
+            println("Rebuilding")
+            d.rebuildIndex()
+        }
     }
 }
