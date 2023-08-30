@@ -12,7 +12,7 @@ class Document(val file: File) : AutoCloseable {
         scope.launch { buildIndex() }
     }
 
-    fun buildIndex() {
+    private fun buildIndex() {
         indexBuildJob = scope.launch {
             val index = CharIndex()
             val tokenizer = Tokenizer()

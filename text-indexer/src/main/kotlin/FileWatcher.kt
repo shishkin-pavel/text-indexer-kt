@@ -1,6 +1,18 @@
+import java.io.File
 import java.nio.file.*
 import kotlin.io.path.absolute
 import kotlin.io.path.isRegularFile
+
+data class FileWatchEvent(
+    val path: Path,
+    val kind: Kind,
+) {
+    enum class Kind(val kind: String) {
+        Created("created"),
+        Modified("modified"),
+        Deleted("deleted")
+    }
+}
 
 class FileWatcher {
     val watchService = FileSystems.getDefault().newWatchService()
@@ -8,61 +20,62 @@ class FileWatcher {
     val key2dir = HashMap<WatchKey, Path>()
     val files = HashMap<Path, Document>()
 
+    private fun registerFile(path: Path) {
+        if (!files.containsKey(path)) {
+            val file = path.toFile()
+            val doc = Document(file)
+            files[path] = doc
+            println("file registered $path")
+        }
+    }
+
+    private fun registerDir(path: Path) {
+        if (!directories.containsKey(path)) {
+            val key = path.register(
+                watchService,
+                StandardWatchEventKinds.ENTRY_CREATE,
+                StandardWatchEventKinds.ENTRY_MODIFY,
+                StandardWatchEventKinds.ENTRY_DELETE
+            )
+            directories[path] = key
+            key2dir[key] = path
+            println("dir registered $path")
+        }
+    }
+
+    private fun registerDirTree(path: Path) {
+        Files.walk(path).forEach {
+            val absolute = it.absolute()
+            if (Files.isDirectory(it)) {
+                registerDir(absolute)
+            } else if (Files.isRegularFile(it)) {
+                registerFile(absolute);
+            }
+        }
+    }
+
+    private fun unregisterFile(absolutePath: Path) {
+        println("file $absolutePath was deleted")
+        val doc = files.remove(absolutePath)!!
+        doc.close()
+    }
+
+    private fun unregisterDir(absolutePath: Path) {
+        println("dir  $absolutePath was deleted")
+        val key = directories.remove(absolutePath)
+        key2dir.remove(key)
+    }
+
+    private fun unregister(absolutePath: Path) {
+        if (files.containsKey(absolutePath)) {
+            unregisterFile(absolutePath)
+        } else if (directories.containsKey(absolutePath)) {
+            unregisterDir(absolutePath)
+        }
+    }
+
     fun watchDirectoryTree(rootPath: Path, trustFileAttrs: Boolean) {
-        fun registerFile(path: Path) {
-            if (!files.containsKey(path)) {
-                val file = path.toFile()
-                val doc = Document(file)
-                files[path] = doc
-                println("file registered $path")
-            }
-        }
-
-        fun registerDir(path: Path) {
-            if (!directories.containsKey(path)) {
-                val key = path.register(
-                    watchService,
-                    StandardWatchEventKinds.ENTRY_CREATE,
-                    StandardWatchEventKinds.ENTRY_MODIFY,
-                    StandardWatchEventKinds.ENTRY_DELETE
-                )
-                directories[path] = key
-                key2dir[key] = path
-                println("dir registered $path")
-            }
-        }
-
-        fun registerDirTree(path: Path) {
-            Files.walk(path).forEach {
-                val absolute = it.absolute()
-                if (Files.isDirectory(it)) {
-                    registerDir(absolute)
-                } else if (Files.isRegularFile(it)) {
-                    registerFile(absolute);
-                }
-            }
-        }
-
-        fun unregisterFile(absolutePath: Path) {
-            println("file $absolutePath was deleted")
-            val doc = files.remove(absolutePath)!!
-            doc.close()
-        }
-
-        fun unregisterDir(absolutePath: Path) {
-            println("dir  $absolutePath was deleted")
-            val key = directories.remove(absolutePath)
-            key2dir.remove(key)
-        }
-
-        fun unregister(absolutePath: Path) {
-            if (files.containsKey(absolutePath)) {
-                unregisterFile(absolutePath)
-            } else if (directories.containsKey(absolutePath)) {
-                unregisterDir(absolutePath)
-            }
-        }
-
+        @Suppress("NAME_SHADOWING") val rootPath = rootPath.absolute()
         registerDirTree(rootPath)
 
         while (true) {
