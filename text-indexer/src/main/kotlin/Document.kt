@@ -22,7 +22,6 @@ class Document(val file: File) : AutoCloseable {
             for ((token, pos) in tch) {
                 index.addToken(token, pos)
             }
-            println("${file.path} analysis completed")
             deferredIndex.complete(index)
             indexBuildJob = null
         }
@@ -42,9 +41,7 @@ class Document(val file: File) : AutoCloseable {
     private suspend fun getIndex(): Index<CharIndex.LinePos> {
         while (!isClosed) {
             try {
-                val r = deferredIndex.await()
-                println("index ready")
-                return r
+                return deferredIndex.await()
             } catch (e: Exception) {
                 println("index ex $e")
             }

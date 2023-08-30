@@ -3,10 +3,21 @@ import kotlinx.coroutines.channels.Channel
 import java.nio.file.Path
 import kotlinx.coroutines.*
 
-class DocumentCollection {
+class DocumentCollection(rootPath: Path, scope: CoroutineScope) {
     private val documents = HashMap<Path, Document>()
+    private val singleThreadContext = newSingleThreadContext("file watcher thread")
+    private val fileWatcher = FileWatcher()
 
-    suspend fun watchChanges(fileWatchEvents: Channel<FileWatchEvent>) {
+    init {
+        scope.launch(singleThreadContext) {
+            fileWatcher.watchDirectoryTree(rootPath)
+        }
+        scope.launch(singleThreadContext) {
+            watchChanges(fileWatcher.eventChannel)
+        }
+    }
+
+    private suspend fun watchChanges(fileWatchEvents: Channel<FileWatchEvent>) {
         for (fwe in fileWatchEvents) {
             when (fwe.kind) {
                 FileWatchEvent.Kind.Created -> {
@@ -20,7 +31,8 @@ class DocumentCollection {
                 }
 
                 FileWatchEvent.Kind.Deleted -> {
-                    documents.remove(fwe.path)
+                    val doc = documents.remove(fwe.path)!!
+                    doc.close()
                 }
             }
         }

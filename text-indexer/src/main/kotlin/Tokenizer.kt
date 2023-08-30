@@ -81,7 +81,6 @@ class Tokenizer {
                 }
             }
             ch.close()
-            println("${file.path} should be closed")
         }
         return ch
     }
