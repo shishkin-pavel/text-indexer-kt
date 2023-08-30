@@ -27,11 +27,7 @@ class KWatchChannel(
 
     private val watchService: WatchService = FileSystems.getDefault().newWatchService()
     private val registeredKeys = ArrayList<WatchKey>()
-    private val path: Path = if (file.isFile) {
-        file.parentFile
-    } else {
-        file
-    }.toPath()
+    private val path: Path = file.toPath()
 
     private fun registerPaths() {
         registeredKeys.apply {
