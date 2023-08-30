@@ -43,7 +43,7 @@ class Document(val file: File) : AutoCloseable {
             try {
                 return deferredIndex.await()
             } catch (e: Exception) {
-                println("index ex $e")
+//                println("index ex $e")
             }
         }
         throw Exception("document was disposed")    // TODO closing queried document can introduce several problems, lets deal with that later

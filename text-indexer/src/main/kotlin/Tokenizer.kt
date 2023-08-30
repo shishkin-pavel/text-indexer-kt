@@ -3,7 +3,6 @@ import kotlinx.coroutines.channels.Channel
 import org.mozilla.universalchardet.UniversalDetector
 import java.io.File
 import java.io.FileInputStream
-import java.lang.Exception
 import java.nio.charset.Charset
 
 class Tokenizer {
@@ -27,7 +26,7 @@ class Tokenizer {
         detector.dataEnd()
         val encoding = detector.detectedCharset
         if (encoding == null) {
-            println("encoding was not detected, UTF-8 will be used")
+//            println("encoding was not detected, UTF-8 will be used")
             return Charsets.UTF_8
         }
         detector.reset()
@@ -37,9 +36,9 @@ class Tokenizer {
         val charset = Charset.availableCharsets()[encoding]
 
         if (charset == null) {
-            println("no suitable charset supported, UTF-8 will be used")
+//            println("no suitable charset supported, UTF-8 will be used")
         } else {
-            println("charset: $encoding, detected after $totalRead bytes")
+//            println("charset: $encoding, detected after $totalRead bytes")
         }
 
         return charset ?: Charsets.UTF_8

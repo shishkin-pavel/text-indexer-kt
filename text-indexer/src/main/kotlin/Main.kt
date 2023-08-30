@@ -4,8 +4,10 @@ import kotlin.io.path.Path
 fun main(args: Array<String>) {
 
     runBlocking {
-        val rootPath = Path(args[0])
-        val docColl = DocumentCollection(rootPath, CoroutineScope(Dispatchers.Default))
+        if (args.size != 1) {
+            println("usage: <binary> <path to watched directory>")
+        }
+        val docColl = DocumentCollection(Path(args[0]), CoroutineScope(Dispatchers.Default))
         var q = readln()
         while (q != "exit") {
             val res = docColl.query(q)

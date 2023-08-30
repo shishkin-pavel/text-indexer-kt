@@ -23,17 +23,17 @@ class FileWatcher {
 
     private suspend fun fileCreated(absolutePath: Path) {
         eventChannel.send(FileWatchEvent(absolutePath, FileWatchEvent.Kind.Created))
-        println("file $absolutePath was created")
+//        println("file $absolutePath was created")
     }
 
     private suspend fun fileDeleted(absolutePath: Path) {
         eventChannel.send(FileWatchEvent(absolutePath, FileWatchEvent.Kind.Deleted))
-        println("file $absolutePath was deleted")
+//        println("file $absolutePath was deleted")
     }
 
     private suspend fun fileModified(absolutePath: Path) {
         eventChannel.send(FileWatchEvent(absolutePath, FileWatchEvent.Kind.Modified))
-        println("file $absolutePath was modified")
+//        println("file $absolutePath was modified")
     }
 
     private fun registerDir(absolutePath: Path) {
@@ -46,7 +46,7 @@ class FileWatcher {
             )
             directories[absolutePath] = key
             key2dir[key] = absolutePath
-            println("dir registered $absolutePath")
+//            println("dir registered $absolutePath")
         }
     }
 
@@ -66,7 +66,7 @@ class FileWatcher {
     }
 
     private fun unregisterDir(absolutePath: Path) {
-        println("dir  $absolutePath was deleted")
+//        println("dir  $absolutePath was deleted")
         val key = directories.remove(absolutePath)
         key2dir.remove(key)
     }
@@ -90,7 +90,6 @@ class FileWatcher {
 
                     when (kind) {
                         StandardWatchEventKinds.ENTRY_CREATE -> {
-                            println("$absolute was created")
                             if (Files.isDirectory(absolute, LinkOption.NOFOLLOW_LINKS)) {
                                 registerDirTree(absolute)
                             } else if (Files.isRegularFile(absolute)) {
