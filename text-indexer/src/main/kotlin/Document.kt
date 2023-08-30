@@ -16,8 +16,6 @@ class Document<TPos>(val file: File, var tokenizer: Tokenizer<TPos>, val emptyIn
     private fun buildIndex() {
         indexBuildJob = scope.launch {
             val index: Index<TPos> = emptyIndex()
-
-//            val tokenizer = SimpleWordTokenizer()
             val scope = CoroutineScope(Dispatchers.IO)
             val tch = tokenizer.tokenize(file, scope)
             for ((token, pos) in tch) {
@@ -43,8 +41,7 @@ class Document<TPos>(val file: File, var tokenizer: Tokenizer<TPos>, val emptyIn
         while (!isClosed) {
             try {
                 return deferredIndex.await()
-            } catch (e: Exception) {
-//                println("index ex $e")
+            } catch (_: Exception) {
             }
         }
         throw Exception("document was disposed")    // TODO closing queried document can introduce several problems, lets deal with that later
