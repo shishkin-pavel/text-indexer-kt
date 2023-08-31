@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/text-indexer.iml" filepath="$PROJECT_DIR$/text-indexer.iml" />
+      <module fileurl="file://$PROJECT_DIR$/text-indexer-lib/text-indexer-lib.iml" filepath="$PROJECT_DIR$/text-indexer-lib/text-indexer-lib.iml" />
     </modules>
   </component>
 </project>
