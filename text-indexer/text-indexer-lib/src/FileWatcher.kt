@@ -80,43 +80,47 @@ class FileWatcher {
                     watchService.take()
 
                 val path = key2dir[watchKey]
-                for (event in watchKey.pollEvents()) {
-                    val kind = event.kind()
 
-                    val name: Path = event.context() as Path
-                    val absolute: Path =
-                        path!!.resolve(name)   // TODO dir delete event can happen earlier than events representing nested file deletion, hence npe will be thrown here
+                val watchEvents = watchKey.pollEvents()
+                val keyValidity = watchKey.reset()
 
-                    val f = absolute.toFile()
+                if (path != null) {
+                    for (event in watchEvents) {
+                        println("$path: ${event.kind()}")
+                        val kind = event.kind()
 
-                    when (kind) {
-                        StandardWatchEventKinds.ENTRY_CREATE -> {
-                            when {
-                                f.isFile -> fileCreated(absolute)
-                                f.isDirectory -> registerDirTree(absolute)
+                        val name: Path = event.context() as Path
+                        val absolute: Path =
+                            path!!.resolve(name)   // TODO dir delete event can happen earlier than events representing nested file deletion, hence npe will be thrown here
+
+                        val f = absolute.toFile()
+
+                        when (kind) {
+                            StandardWatchEventKinds.ENTRY_CREATE -> {
+                                when {
+                                    f.isFile -> fileCreated(absolute)
+                                    f.isDirectory -> registerDirTree(absolute)
+                                }
                             }
-                        }
 
-                        StandardWatchEventKinds.ENTRY_MODIFY -> {
-                            absolute.toFile().isFile
-                            when {
-                                f.isFile -> fileModified(absolute)
-                                f.isDirectory -> {}
+                            StandardWatchEventKinds.ENTRY_MODIFY -> {
+                                when {
+                                    f.isFile -> fileModified(absolute)
+                                    f.isDirectory -> {}
+                                }
                             }
-                        }
 
-                        StandardWatchEventKinds.ENTRY_DELETE -> {
-                            if (directories.containsKey(absolute)) {
-                                unregisterDir(absolute)
-                            } else {
-                                fileDeleted(absolute)
+                            StandardWatchEventKinds.ENTRY_DELETE -> {
+                                if (directories.containsKey(absolute)) {
+                                    unregisterDir(absolute)
+                                } else {
+                                    fileDeleted(absolute)
+                                }
                             }
-                        }
 
+                        }
                     }
                 }
-
-                watchKey.reset()
             }
         }
     }

@@ -14,6 +14,7 @@ fun main(args: Array<String>) {
                 { CharIndex() },    // TODO looks dirty, is there better way like C# 'new generic type constraint' or Rust "static" trait members?
                 CoroutineScope(Dispatchers.Default)
             )
+
         var q = readln()
         while (q != "exit") {
             val res = docColl.query(q)

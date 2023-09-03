@@ -22,23 +22,22 @@ class SimpleWordTokenizer : Tokenizer<CharIndex.LinePos> {
     private fun detectCharset(file: File): Charset {
         val detector = UniversalDetector(null)
         val buf = ByteArray(4096)
-        val fis = FileInputStream(file)
+        var encoding: String? = null
+        FileInputStream(file).use { fis ->
+            var totalRead = 0
+            var nread: Int
+            while (fis.read(buf).also { nread = it; totalRead += it } > 0 && !detector.isDone) {
+                detector.handleData(buf, 0, nread)
+            }
 
-        var totalRead = 0
-        var nread: Int
-        while (fis.read(buf).also { nread = it; totalRead += it } > 0 && !detector.isDone) {
-            detector.handleData(buf, 0, nread)
-        }
-
-        detector.dataEnd()
-        val encoding = detector.detectedCharset
-        if (encoding == null) {
+            detector.dataEnd()
+            encoding = detector.detectedCharset
+            if (encoding == null) {
 //            println("encoding was not detected, UTF-8 will be used")
-            return Charsets.UTF_8
+                return Charsets.UTF_8
+            }
+            detector.reset()
         }
-        detector.reset()
-
-        fis.close()
 
         val charset = Charset.availableCharsets()[encoding]
 
