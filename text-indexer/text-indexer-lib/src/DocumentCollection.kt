@@ -11,6 +11,8 @@ class DocumentCollection<TPos>(
     scope: CoroutineScope
 ) {
     private val documents = ConcurrentHashMap<Path, Document<TPos>>()
+
+    @OptIn(DelicateCoroutinesApi::class)
     private val singleThreadContext = newSingleThreadContext("file watcher thread")
     private val fileWatcher = FileWatcher()
 

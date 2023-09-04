@@ -9,10 +9,10 @@ data class FileWatchEvent(
     val path: Path,
     val kind: Kind,
 ) {
-    enum class Kind(val kind: String) {
-        Created("created"),
-        Modified("modified"),
-        Deleted("deleted")
+    enum class Kind {
+        Created,
+        Modified,
+        Deleted
     }
 }
 
@@ -82,7 +82,7 @@ class FileWatcher {
                 val path = key2dir[watchKey]
 
                 val watchEvents = watchKey.pollEvents()
-                val keyValidity = watchKey.reset()
+                watchKey.reset()
 
                 if (path != null) {
                     for (event in watchEvents) {
@@ -91,7 +91,7 @@ class FileWatcher {
 
                         val name: Path = event.context() as Path
                         val absolute: Path =
-                            path!!.resolve(name)   // TODO dir delete event can happen earlier than events representing nested file deletion, hence npe will be thrown here
+                            path.resolve(name)   // TODO dir delete event can happen earlier than events representing nested file deletion, hence npe will be thrown here
 
                         val f = absolute.toFile()
 

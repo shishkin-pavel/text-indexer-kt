@@ -6,6 +6,8 @@ import java.io.FileInputStream
 import java.nio.charset.Charset
 
 interface Tokenizer<TPos> {
+    fun sanitizeToken(str: String): String
+
     fun tokenize(
         file: File,
         scope: CoroutineScope
@@ -19,10 +21,14 @@ class SimpleWordTokenizer : Tokenizer<CharIndex.LinePos> {
         return c.isLetterOrDigit() || punctuationInWord.contains(c)
     }
 
+    override fun sanitizeToken(str: String): String {
+        return str.lowercase()
+    }
+
     private fun detectCharset(file: File): Charset {
         val detector = UniversalDetector(null)
         val buf = ByteArray(4096)
-        var encoding: String? = null
+        var encoding: String?
         FileInputStream(file).use { fis ->
             var totalRead = 0
             var nread: Int
@@ -40,12 +46,6 @@ class SimpleWordTokenizer : Tokenizer<CharIndex.LinePos> {
         }
 
         val charset = Charset.availableCharsets()[encoding]
-
-        if (charset == null) {
-//            println("no suitable charset supported, UTF-8 will be used")
-        } else {
-//            println("charset: $encoding, detected after $totalRead bytes")
-        }
 
         return charset ?: Charsets.UTF_8
     }
@@ -79,8 +79,8 @@ class SimpleWordTokenizer : Tokenizer<CharIndex.LinePos> {
                     }
 
                     for ((s, e) in tokenBoundaries) {
-                        val substr = line.substring(s..e)
-                        val p = Pair(substr, CharIndex.LinePos(lineNum + 1, s))
+                        val str = sanitizeToken(line.substring(s..e))
+                        val p = Pair(str, CharIndex.LinePos(lineNum + 1, s))
                         ch.send(p)
                     }
                 }

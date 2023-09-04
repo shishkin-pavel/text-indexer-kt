@@ -23,7 +23,7 @@ class Trie<TPos> {
 
         for (i in token.indices) {
             val c = token[i]
-            val nextNode = curr.children[c];
+            val nextNode = curr.children[c]
             if (nextNode == null) {
                 var last = Node<TPos>()
                 last.positions += pos
@@ -36,7 +36,7 @@ class Trie<TPos> {
                 return
             }
 
-            curr = nextNode;
+            curr = nextNode
         }
 
         curr.positions += pos

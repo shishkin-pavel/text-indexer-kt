@@ -2,7 +2,7 @@ import kotlinx.coroutines.*
 import java.io.File
 import java.lang.Exception
 
-class Document<TPos>(val file: File, var tokenizer: Tokenizer<TPos>, val emptyIndex: () -> Index<TPos>) :
+class Document<TPos>(val file: File, private var tokenizer: Tokenizer<TPos>, val emptyIndex: () -> Index<TPos>) :
     AutoCloseable {
     private val scope = CoroutineScope(Dispatchers.IO)
     private var deferredIndex: CompletableDeferred<Index<TPos>> = CompletableDeferred()
@@ -48,7 +48,7 @@ class Document<TPos>(val file: File, var tokenizer: Tokenizer<TPos>, val emptyIn
     }
 
     suspend fun queryString(s: String): ArrayList<TPos> {
-        return getIndex().getPositions(s)
+        return getIndex().getPositions(tokenizer.sanitizeToken(s))
     }
 
     override fun close() {
