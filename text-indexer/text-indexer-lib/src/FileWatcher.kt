@@ -2,8 +2,37 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withContext
 import java.nio.file.*
+import java.util.*
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.collections.HashSet
 import kotlin.io.path.absolute
+
+fun <T, TData, TColl : Collection<T>> bfs(
+    start: T,
+    getChildren: (T) -> TColl,
+    getData: (T) -> TData
+): List<Pair<T, TData>> {
+    val queue: Queue<T> = LinkedList()
+    val result = mutableListOf<Pair<T, TData>>()
+    val visited = mutableSetOf<T>()
+
+    queue.add(start)
+    visited.add(start)
+
+    while (queue.isNotEmpty()) {
+        val current = queue.poll()
+        result.add(Pair(current, getData(current)))
+
+        for (c in getChildren(current)) {
+            if (!visited.contains(c)) {
+                queue.add(c)
+                visited.add(c)
+            }
+        }
+    }
+
+    return result
+}
 
 data class FileWatchEvent(
     val path: Path,
@@ -25,12 +54,41 @@ class FileWatcher {
     private val directories = ConcurrentHashMap<Path, WatchKey>()
     private val key2dir = ConcurrentHashMap<WatchKey, Path>()
 
+    private data class NestedItems(val dirs: HashSet<Path>, val files: HashSet<Path>) {
+        constructor() : this(HashSet(), HashSet())
+
+        fun addDir(absolutePath: Path) {
+            dirs.add(absolutePath)
+        }
+
+        fun removeDir(absolutePath: Path) {
+            dirs.remove(absolutePath)
+        }
+
+        fun addFile(absolutePath: Path) {
+            files.add(absolutePath)
+        }
+
+        fun removeFile(absolutePath: Path): Boolean {
+            return files.remove(absolutePath)
+        }
+    }
+
+    private val nesting = ConcurrentHashMap<Path, NestedItems>()
+
+    private fun getInnerElements(absoluteDirPath: Path): NestedItems {
+        return nesting.getOrPut(absoluteDirPath) { NestedItems() }
+    }
+
     private suspend fun fileCreated(absolutePath: Path) {
+        getInnerElements(absolutePath.parent).addFile(absolutePath)
         eventChannel.send(FileWatchEvent(absolutePath, FileWatchEvent.Kind.Created))
     }
 
     private suspend fun fileDeleted(absolutePath: Path) {
-        eventChannel.send(FileWatchEvent(absolutePath, FileWatchEvent.Kind.Deleted))
+        if (getInnerElements(absolutePath.parent).removeFile(absolutePath)) {
+            eventChannel.send(FileWatchEvent(absolutePath, FileWatchEvent.Kind.Deleted))
+        }
     }
 
     private suspend fun fileModified(absolutePath: Path) {
@@ -47,6 +105,30 @@ class FileWatcher {
             )
             directories[absolutePath] = key
             key2dir[key] = absolutePath
+            getInnerElements(absolutePath.parent).addDir(absolutePath)
+        }
+    }
+
+    private fun unregisterDir(absolutePath: Path) {
+        val key = directories.remove(absolutePath)
+        if (key != null) {
+            key2dir.remove(key)
+            key.cancel()
+        }
+        getInnerElements(absolutePath.parent).removeDir(absolutePath)
+    }
+
+    private suspend fun unregisterDirTree(absolutePath: Path) {
+        val nestedItems =
+            bfs(
+                absolutePath,
+                { nesting[it]?.dirs?.toList() ?: emptyList() },
+                { nesting[it]?.files?.toList() ?: emptyList() })
+        for ((dir, files) in nestedItems) {
+            unregisterDir(dir)
+            for (f in files) {
+                fileDeleted(f)
+            }
         }
     }
 
@@ -65,11 +147,6 @@ class FileWatcher {
         }
     }
 
-    private fun unregisterDir(absolutePath: Path) {
-        val key = directories.remove(absolutePath)
-        key2dir.remove(key)
-    }
-
     suspend fun watchDirectoryTree(rootPath: Path) {
         withContext(Dispatchers.IO) {
             @Suppress("NAME_SHADOWING") val rootPath = rootPath.absolute()
@@ -86,7 +163,6 @@ class FileWatcher {
 
                 if (path != null) {
                     for (event in watchEvents) {
-                        println("$path: ${event.kind()}")
                         val kind = event.kind()
 
                         val name: Path = event.context() as Path
@@ -112,7 +188,7 @@ class FileWatcher {
 
                             StandardWatchEventKinds.ENTRY_DELETE -> {
                                 if (directories.containsKey(absolute)) {
-                                    unregisterDir(absolute)
+                                    unregisterDirTree(absolute)
                                 } else {
                                     fileDeleted(absolute)
                                 }

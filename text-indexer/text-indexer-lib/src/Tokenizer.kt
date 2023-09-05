@@ -2,8 +2,10 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import org.mozilla.universalchardet.UniversalDetector
 import java.io.File
-import java.io.FileInputStream
+import java.nio.ByteBuffer
+import java.nio.channels.AsynchronousFileChannel
 import java.nio.charset.Charset
+import java.nio.file.StandardOpenOption
 
 interface Tokenizer<TPos> {
     fun sanitizeToken(str: String): String
@@ -14,7 +16,30 @@ interface Tokenizer<TPos> {
     ): Channel<Pair<String, TPos>>
 }
 
-class SimpleWordTokenizer : Tokenizer<CharIndex.LinePos> {
+suspend fun <T> retry(
+    times: Int = Int.MAX_VALUE,
+    initialDelay: Long = 1000,
+    maxDelay: Long = 30000,
+    factor: Double = 2.0,
+    block: suspend () -> T
+): Result<T> {
+    var currentDelay = initialDelay
+    var lastEx: Exception? = null
+    repeat(times) {
+        try {
+            return@retry Result.success(block())
+        } catch (e: Exception) {
+            println("retrying: ${e.message}")
+            lastEx = e
+        }
+
+        delay(currentDelay)
+        currentDelay = (currentDelay * factor).toLong().coerceAtMost(maxDelay)
+    }
+    return Result.failure(lastEx!!)
+}
+
+class SimpleWordTokenizer(private val defaultEncoding: Charset = Charsets.UTF_8) : Tokenizer<CharIndex.LinePos> {
     private val punctuationInWord = setOf('\'', '-', '_')
 
     private fun validWordChar(c: Char): Boolean {
@@ -25,29 +50,34 @@ class SimpleWordTokenizer : Tokenizer<CharIndex.LinePos> {
         return str.lowercase()
     }
 
-    private fun detectCharset(file: File): Charset {
+    private suspend fun detectCharset(file: File): Charset {
         val detector = UniversalDetector(null)
-        val buf = ByteArray(4096)
-        var encoding: String?
-        FileInputStream(file).use { fis ->
-            var totalRead = 0
-            var nread: Int
-            while (fis.read(buf).also { nread = it; totalRead += it } > 0 && !detector.isDone) {
-                detector.handleData(buf, 0, nread)
-            }
+        val buf = ByteBuffer.allocate(4096)
+        val encodingRes = retry {
+            AsynchronousFileChannel.open(file.toPath(), StandardOpenOption.READ).use { fis ->
+                var totalRead = 0L
+                var nread: Int
+                while (fis.read(buf, totalRead).get()
+                        .also { nread = it; totalRead += it } > 0 && !detector.isDone
+                ) {
+                    detector.handleData(buf.array(), 0, nread)
+                }
 
-            detector.dataEnd()
-            encoding = detector.detectedCharset
-            if (encoding == null) {
-//            println("encoding was not detected, UTF-8 will be used")
-                return Charsets.UTF_8
+                detector.dataEnd()
+                val detectedEncoding = detector.detectedCharset
+                detector.reset()
+                detectedEncoding
             }
-            detector.reset()
         }
 
-        val charset = Charset.availableCharsets()[encoding]
+        return when {
+            encodingRes.isSuccess -> {
+                val encoding = encodingRes.getOrNull()!!
+                Charset.availableCharsets()[encoding] ?: defaultEncoding
+            }
 
-        return charset ?: Charsets.UTF_8
+            else -> defaultEncoding
+        }
     }
 
     override fun tokenize(
@@ -57,35 +87,37 @@ class SimpleWordTokenizer : Tokenizer<CharIndex.LinePos> {
         val ch = Channel<Pair<String, CharIndex.LinePos>>(10)
 
         scope.launch {
-            val charset = detectCharset(file)
-            file.useLines(charset) { lines ->
-                lines.forEachIndexed { lineNum, line ->
-                    val tokenBoundaries = ArrayList<Pair<Int, Int>>()
-                    var tokenStart: Int? = null
-                    line.forEachIndexed { idx, c ->
-                        if (validWordChar(c)) {
-                            if (tokenStart == null) {
-                                tokenStart = idx
-                            }
-                        } else {
-                            if (tokenStart != null) {
-                                tokenBoundaries += Pair(tokenStart!!, (idx - 1))
-                                tokenStart = null
+            withContext(Dispatchers.IO) {
+                val charset = detectCharset(file)
+                file.useLines(charset) { lines ->
+                    lines.forEachIndexed { lineNum, line ->
+                        val tokenBoundaries = ArrayList<Pair<Int, Int>>()
+                        var tokenStart: Int? = null
+                        line.forEachIndexed { idx, c ->
+                            if (validWordChar(c)) {
+                                if (tokenStart == null) {
+                                    tokenStart = idx
+                                }
+                            } else {
+                                if (tokenStart != null) {
+                                    tokenBoundaries += Pair(tokenStart!!, (idx - 1))
+                                    tokenStart = null
+                                }
                             }
                         }
-                    }
-                    if (tokenStart != null) {
-                        tokenBoundaries += Pair(tokenStart!!, (line.length - 1))
-                    }
+                        if (tokenStart != null) {
+                            tokenBoundaries += Pair(tokenStart!!, (line.length - 1))
+                        }
 
-                    for ((s, e) in tokenBoundaries) {
-                        val str = sanitizeToken(line.substring(s..e))
-                        val p = Pair(str, CharIndex.LinePos(lineNum + 1, s))
-                        ch.send(p)
+                        for ((s, e) in tokenBoundaries) {
+                            val str = sanitizeToken(line.substring(s..e))
+                            val p = Pair(str, CharIndex.LinePos(lineNum + 1, s))
+                            ch.send(p)
+                        }
                     }
                 }
+                ch.close()
             }
-            ch.close()
         }
         return ch
     }
