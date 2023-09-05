@@ -166,8 +166,7 @@ class FileWatcher {
                         val kind = event.kind()
 
                         val name: Path = event.context() as Path
-                        val absolute: Path =
-                            path.resolve(name)   // TODO dir delete event can happen earlier than events representing nested file deletion, hence npe will be thrown here
+                        val absolute: Path = path.resolve(name)
 
                         val f = absolute.toFile()
 
