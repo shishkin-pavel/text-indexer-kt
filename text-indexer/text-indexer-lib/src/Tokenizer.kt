@@ -39,7 +39,8 @@ suspend fun <T> retry(
     return Result.failure(lastEx!!)
 }
 
-class SimpleWordTokenizer(private val defaultEncoding: Charset = Charsets.UTF_8) : Tokenizer<CharIndex.LinePos> {
+class CaseInsensitiveWordTokenizer(private val defaultEncoding: Charset = Charsets.UTF_8) :
+    Tokenizer<CharIndex.LinePos> {
     private val punctuationInWord = setOf('\'', '-', '_')
 
     private fun validWordChar(c: Char): Boolean {
