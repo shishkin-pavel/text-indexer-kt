@@ -50,15 +50,16 @@ class SimpleWordTokenizer(private val defaultEncoding: Charset = Charsets.UTF_8)
         return str.lowercase()
     }
 
-    private suspend fun detectCharset(file: File): Charset {
+    private fun detectCharset(file: File): Charset {
         val detector = UniversalDetector(null)
         val buf = ByteBuffer.allocate(4096)
-        val encodingRes = retry {
+        val encoding =
             AsynchronousFileChannel.open(file.toPath(), StandardOpenOption.READ).use { fis ->
                 var totalRead = 0L
                 var nread: Int
                 while (fis.read(buf, totalRead).get()
-                        .also { nread = it; totalRead += it } > 0 && !detector.isDone
+                        .also { nread = it; totalRead += it } > 0
+                    && !detector.isDone // would be great if we could set that check to be the first, but compiler blames me that `nread` is uninitialized in that case (analysys bug?)
                 ) {
                     detector.handleData(buf.array(), 0, nread)
                 }
@@ -68,16 +69,11 @@ class SimpleWordTokenizer(private val defaultEncoding: Charset = Charsets.UTF_8)
                 detector.reset()
                 detectedEncoding
             }
-        }
 
-        return when {
-            encodingRes.isSuccess -> {
-                val encoding = encodingRes.getOrNull()!!
-                Charset.availableCharsets()[encoding] ?: defaultEncoding
-            }
-
-            else -> defaultEncoding
+        if (encoding != null) {
+            return Charset.availableCharsets()[encoding] ?: defaultEncoding
         }
+        return defaultEncoding
     }
 
     override fun tokenize(
@@ -88,35 +84,37 @@ class SimpleWordTokenizer(private val defaultEncoding: Charset = Charsets.UTF_8)
 
         scope.launch {
             withContext(Dispatchers.IO) {
-                val charset = detectCharset(file)
-                file.useLines(charset) { lines ->
-                    lines.forEachIndexed { lineNum, line ->
-                        val tokenBoundaries = ArrayList<Pair<Int, Int>>()
-                        var tokenStart: Int? = null
-                        line.forEachIndexed { idx, c ->
-                            if (validWordChar(c)) {
-                                if (tokenStart == null) {
-                                    tokenStart = idx
-                                }
-                            } else {
-                                if (tokenStart != null) {
-                                    tokenBoundaries += Pair(tokenStart!!, (idx - 1))
-                                    tokenStart = null
+                retry {
+                    val charset = detectCharset(file)
+                    file.useLines(charset) { lines ->
+                        lines.forEachIndexed { lineNum, line ->
+                            val tokenBoundaries = ArrayList<Pair<Int, Int>>()
+                            var tokenStart: Int? = null
+                            line.forEachIndexed { idx, c ->
+                                if (validWordChar(c)) {
+                                    if (tokenStart == null) {
+                                        tokenStart = idx
+                                    }
+                                } else {
+                                    if (tokenStart != null) {
+                                        tokenBoundaries += Pair(tokenStart!!, (idx - 1))
+                                        tokenStart = null
+                                    }
                                 }
                             }
-                        }
-                        if (tokenStart != null) {
-                            tokenBoundaries += Pair(tokenStart!!, (line.length - 1))
-                        }
+                            if (tokenStart != null) {
+                                tokenBoundaries += Pair(tokenStart!!, (line.length - 1))
+                            }
 
-                        for ((s, e) in tokenBoundaries) {
-                            val str = sanitizeToken(line.substring(s..e))
-                            val p = Pair(str, CharIndex.LinePos(lineNum + 1, s))
-                            ch.send(p)
+                            for ((s, e) in tokenBoundaries) {
+                                val str = sanitizeToken(line.substring(s..e))
+                                val p = Pair(str, CharIndex.LinePos(lineNum + 1, s))
+                                ch.send(p)
+                            }
                         }
                     }
+                    ch.close()
                 }
-                ch.close()
             }
         }
         return ch
