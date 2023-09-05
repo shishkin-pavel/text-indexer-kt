@@ -4,6 +4,7 @@ import java.nio.file.Path
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
 
+@OptIn(DelicateCoroutinesApi::class)
 class DocumentCollection<TPos>(
     rootPath: Path,
     private val tokenizer: Tokenizer<TPos>,
@@ -12,15 +13,15 @@ class DocumentCollection<TPos>(
 ) {
     private val documents = ConcurrentHashMap<Path, Document<TPos>>()
 
-    @OptIn(DelicateCoroutinesApi::class)
-    private val singleThreadContext = newSingleThreadContext("file watcher thread")
+    private val fileWatcherContext = newSingleThreadContext("file watcher thread")
+    private val fileIndexerContext = newSingleThreadContext("file indexer thread")
     private val fileWatcher = FileWatcher()
 
     init {
-        scope.launch(singleThreadContext) {
+        scope.launch(fileWatcherContext) {
             fileWatcher.watchDirectoryTree(rootPath)
         }
-        scope.launch(singleThreadContext) {
+        scope.launch(fileIndexerContext) {
             watchChanges(fileWatcher.eventChannel)
         }
     }
