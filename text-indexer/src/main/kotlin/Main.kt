@@ -1,5 +1,6 @@
 import kotlinx.coroutines.*
 import kotlin.io.path.Path
+import kotlin.system.exitProcess
 
 suspend fun <TPos> query(docColl: DocumentCollection<TPos>, q: String) {
     val res = docColl.query(q)
@@ -23,6 +24,7 @@ fun main(args: Array<String>) {
     runBlocking {
         if (args.size != 1) {
             println("usage: <binary> <path to watched directory>")
+            exitProcess(1)
         }
         val docColl =
             DocumentCollection(
