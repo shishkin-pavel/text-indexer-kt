@@ -100,7 +100,11 @@ class BloomFilter(private val bitCount: Int, private val hashFunctionsNum: Int) 
 
 // can be useful for search & replace purposes
 class ByteIndex : Index<ByteIndex.BytePos> {
-    data class BytePos(val byteStart: UInt, val byteLen: UInt)
+    data class BytePos(val byteStart: UInt, val byteLen: UInt) {
+        override fun toString(): String {
+            return "0x${byteStart.toString(16)}[0x${byteLen.toString(16)}]"
+        }
+    }
 
     private val trie = Trie<BytePos>()
 
@@ -114,7 +118,11 @@ class ByteIndex : Index<ByteIndex.BytePos> {
 }
 
 class CharIndex : Index<CharIndex.LinePos> {
-    data class LinePos(val line: Int, val shift: Int)
+    data class LinePos(val line: Int, val shift: Int) {
+        override fun toString(): String {
+            return "$line:$shift"
+        }
+    }
 
     private val trie = Trie<LinePos>()
     // probably we can play with bitcount/hashfunctions number, but manual fitting showed worse results than without filters
