@@ -2,8 +2,8 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/text-indexer.iml" filepath="$PROJECT_DIR$/text-indexer.iml" />
-      <module fileurl="file://$PROJECT_DIR$/text-indexer-lib/text-indexer-lib.iml" filepath="$PROJECT_DIR$/text-indexer-lib/text-indexer-lib.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/text-indexer-lib/text-indexer-gradle.text-indexer-lib.main.iml" filepath="$PROJECT_DIR$/.idea/modules/text-indexer-lib/text-indexer-gradle.text-indexer-lib.main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/text-indexer-lib/text-indexer-gradle.text-indexer-lib.test.iml" filepath="$PROJECT_DIR$/.idea/modules/text-indexer-lib/text-indexer-gradle.text-indexer-lib.test.iml" />
     </modules>
   </component>
 </project>
