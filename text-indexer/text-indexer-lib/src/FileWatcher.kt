@@ -96,6 +96,7 @@ class FileWatcher {
     }
 
     private fun registerDir(absolutePath: Path) {
+//        println("registering dir $absolutePath")
         if (!directories.containsKey(absolutePath)) {
             val key = absolutePath.register(
                 watchService,

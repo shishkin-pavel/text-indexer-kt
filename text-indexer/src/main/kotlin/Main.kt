@@ -7,13 +7,13 @@ suspend fun <TPos> query(docColl: DocumentCollection<TPos>, q: String) {
     val totalCount = res.sumOf { it.second.size }
     println("total results: $totalCount")
 
-    for ((filePath, positions) in res) {
-        if (positions.isNotEmpty()) {
-            println("$filePath, ${positions.size} results:")
-            val posStr = positions.joinToString(", ")
-            println(posStr)
-        }
-    }
+//    for ((filePath, positions) in res) {
+//        if (positions.isNotEmpty()) {
+//            println("$filePath, ${positions.size} results:")
+//            val posStr = positions.joinToString(", ")
+//            println(posStr)
+//        }
+//    }
 }
 
 const val EXIT_COMMAND = "exit"
@@ -33,6 +33,11 @@ fun main(args: Array<String>) {
                 { CharIndex() },    // TODO looks dirty, is there better way like C# 'new generic type constraint' or Rust "static" trait members?
                 CoroutineScope(Dispatchers.Default)
             )
+
+        val x = readln()
+
+        docColl.waitForIndexFinish()
+        println("wait finished")
 
         var q = readln()
         while (true) {

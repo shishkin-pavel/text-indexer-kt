@@ -60,4 +60,13 @@ class DocumentCollection<TPos>(
             }
         }.await()
     }
+
+    suspend fun waitForIndexFinish() {
+        println("waiting for ${documents.size} indexes")
+        val indexes = coroutineScope {
+            documents.values.map {
+                async { it.getIndex() }
+            }.map { it.await() }
+        }
+    }
 }

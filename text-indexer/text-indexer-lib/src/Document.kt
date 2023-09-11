@@ -37,7 +37,7 @@ class Document<TPos>(val file: File, private var tokenizer: Tokenizer<TPos>, val
         buildIndex()
     }
 
-    private suspend fun getIndex(): Index<TPos> {
+    suspend fun getIndex(): Index<TPos> {
         while (!isClosed) {
             try {
                 return deferredIndex.await()
