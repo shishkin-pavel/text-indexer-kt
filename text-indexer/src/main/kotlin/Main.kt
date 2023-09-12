@@ -9,7 +9,7 @@ suspend fun <TPos> query(docColl: DocumentCollection<TPos>, q: String) {
     val time = measureNanoTime { res = docColl.query(q) }
     val totalCount = res.sumOf { it.second.size }
     println(
-        "total results: $totalCount in $time nanosec in\n${
+        "total results for \"$q\": $totalCount in $time nanosec:\n${
             res.filter { it.second.isNotEmpty() }.joinToString(",\n") { "${it.first} (${it.second.size})" }
         }"
     )
