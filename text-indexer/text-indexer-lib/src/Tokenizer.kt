@@ -6,7 +6,7 @@ import java.nio.ByteBuffer
 import java.nio.channels.AsynchronousFileChannel
 import java.nio.charset.Charset
 import java.nio.file.StandardOpenOption
-import kotlin.system.measureNanoTime
+import kotlin.system.measureTimeMillis
 
 const val BUF_SIZE = 4096
 const val MAX_BYTES = 20 * BUF_SIZE
@@ -90,9 +90,9 @@ class CaseInsensitiveWordTokenizer(private val defaultEncoding: Charset = Charse
         scope.launch {
             withContext(Dispatchers.IO) {
                 retry {
-//                    println("tokenization start for ${file.toPath()}")
+                    logger.info { "tokenization start for ${file.toPath()}" }
                     var tokenCount = 0
-                    val tokenizationTime = measureNanoTime {
+                    val tokenizationTime = measureTimeMillis {
                         val charsetRes = detectCharset(file)
                         charsetRes.onSuccess { charset ->
                             file.useLines(charset) { lines ->
@@ -126,7 +126,7 @@ class CaseInsensitiveWordTokenizer(private val defaultEncoding: Charset = Charse
                         }
                         ch.close()
                     }
-//                    println("tokenization for ${file.toPath()} finished in $tokenizationTime ns: got $tokenCount tokens")
+                    logger.info { ("tokenization for ${file.toPath()} finished in $tokenizationTime ms, got $tokenCount tokens") }
                 }
             }
         }

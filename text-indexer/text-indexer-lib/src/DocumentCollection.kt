@@ -1,14 +1,14 @@
-import kotlinx.coroutines.async
 import kotlinx.coroutines.*
 import java.io.File
-import java.io.IOException
 import java.nio.file.*
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
-import kotlin.collections.ArrayList
 import kotlin.io.path.absolute
-import kotlin.io.path.exists
+import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlin.io.path.isDirectory
+
+val logger = KotlinLogging.logger {}
 
 fun <T, TData, TColl : Collection<T>> bfs(
     start: T,
@@ -66,14 +66,10 @@ class DocumentCollection<TPos>(
     private val fileWatcherContext = newSingleThreadContext("file watcher thread")
     private val fileWatcher = FileWatcher()
 
-    private val fileWatcherJob: Job
-
-    init {
-        fileWatcherJob = scope.launch {
-            coroutineScope {
-                launch(fileWatcherContext) {
-                    fileWatcher.watch()
-                }
+    private val fileWatcherJob: Job = scope.launch {
+        coroutineScope {
+            launch(fileWatcherContext) {
+                fileWatcher.watch()
             }
         }
     }
@@ -93,7 +89,7 @@ class DocumentCollection<TPos>(
     }
 
     suspend fun waitForIndexFinish() {
-        println("waiting for ${documents.size} indexes")
+        logger.info { "waiting for ${documents.size} indexes" }
         val indexes = coroutineScope {
             documents.values.map {
                 async { it.getIndex() }
@@ -110,12 +106,12 @@ class DocumentCollection<TPos>(
     }
 
     override fun close() {
-        println("cleaning up...")
+        logger.info { "cleaning up..." }
         fileWatcherJob.cancel()
         for (d in documents.values) {
             d.close()
         }
-        println("cleaning up finished")
+        logger.info { "cleaning up finished" }
     }
 
     private data class NestedItems(val dirs: HashSet<Path>, val files: HashSet<Path>) {
@@ -220,6 +216,9 @@ class DocumentCollection<TPos>(
                 } else {
                     try {
                         withContext(Dispatchers.IO) {
+                            if (!absolutePath.isDirectory()) {
+                                throw Exception("$path is not a directory")
+                            }
                             Files.walk(absolutePath).forEach { path ->  // TODO replace with Files.walkFileTree
                                 val absolute = canonicalizePath(path)
                                 when {
@@ -228,10 +227,10 @@ class DocumentCollection<TPos>(
                                 }
                             }
                         }
+                        RegisterDirResult.Ok
                     } catch (ex: Exception) {
                         RegisterDirResult.Error(ex)
                     }
-                    RegisterDirResult.Ok
                 }
             }
             return res.await()
