@@ -1,9 +1,11 @@
 # how to use
 
-* launch: \<binary\> \<directory path to be watched\>
+* launch: '\<binary\>' without any arguments
 * stupid-REPL:
     * "exit" to exit
     * "search \<token\>" to search for token
+    * "add \<path\>" to add path to watch
+    * "remove \<path\>" to remove watch
     * any other string treated as single token
 
 # current problems / todos
