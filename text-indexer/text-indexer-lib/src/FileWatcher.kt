@@ -1,10 +1,11 @@
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.nio.file.*
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.collections.HashSet
+import java.util.concurrent.TimeUnit
 import kotlin.io.path.absolute
 
 fun <T, TData, TColl : Collection<T>> bfs(
@@ -35,7 +36,7 @@ fun <T, TData, TColl : Collection<T>> bfs(
 }
 
 data class FileWatchEvent(
-    val path: Path,
+    val path: String,
     val kind: Kind,
 ) {
     enum class Kind {
@@ -80,19 +81,23 @@ class FileWatcher {
         return nesting.getOrPut(absoluteDirPath) { NestedItems() }
     }
 
+    private fun canonicalizePath(path: Path): Path {
+        return path.absolute().normalize()
+    }
+
     private suspend fun fileCreated(absolutePath: Path) {
         getInnerElements(absolutePath.parent).addFile(absolutePath)
-        eventChannel.send(FileWatchEvent(absolutePath, FileWatchEvent.Kind.Created))
+        eventChannel.send(FileWatchEvent(absolutePath.toString(), FileWatchEvent.Kind.Created))
     }
 
     private suspend fun fileDeleted(absolutePath: Path) {
         if (getInnerElements(absolutePath.parent).removeFile(absolutePath)) {
-            eventChannel.send(FileWatchEvent(absolutePath, FileWatchEvent.Kind.Deleted))
+            eventChannel.send(FileWatchEvent(absolutePath.toString(), FileWatchEvent.Kind.Deleted))
         }
     }
 
     private suspend fun fileModified(absolutePath: Path) {
-        eventChannel.send(FileWatchEvent(absolutePath, FileWatchEvent.Kind.Modified))
+        eventChannel.send(FileWatchEvent(absolutePath.toString(), FileWatchEvent.Kind.Modified))
     }
 
     private fun registerDir(absolutePath: Path) {
@@ -137,12 +142,10 @@ class FileWatcher {
         withContext(Dispatchers.IO) {
             val paths = Files.walk(absolutePath).toList()
             paths.forEach { path ->
-                val absolute = path.absolute()
+                val absolute = canonicalizePath(path)
                 when {
                     Files.isDirectory(absolute) -> registerDir(absolute)
-                    Files.isRegularFile(absolute) -> {
-                        fileCreated(absolute)
-                    }
+                    Files.isRegularFile(absolute) -> fileCreated(absolute)
                 }
             }
         }
@@ -153,9 +156,8 @@ class FileWatcher {
             @Suppress("NAME_SHADOWING") val rootPath = rootPath.absolute()
             registerDirTree(rootPath)
 
-            while (true) {
-                val watchKey: WatchKey =
-                    watchService.take()
+            while (isActive) {
+                val watchKey = watchService.poll(100, TimeUnit.MILLISECONDS) ?: continue
 
                 val path = key2dir[watchKey]
 
@@ -167,12 +169,13 @@ class FileWatcher {
                         val kind = event.kind()
 
                         val name: Path = event.context() as Path
-                        val absolute: Path = path.resolve(name)
+                        val absolute = canonicalizePath(path.resolve(name))
 
                         val f = absolute.toFile()
 
                         when (kind) {
                             StandardWatchEventKinds.ENTRY_CREATE -> {
+                                println("create $absolute")
                                 when {
                                     f.isFile -> fileCreated(absolute)
                                     f.isDirectory -> registerDirTree(absolute)
@@ -180,6 +183,7 @@ class FileWatcher {
                             }
 
                             StandardWatchEventKinds.ENTRY_MODIFY -> {
+                                println("modify $absolute")
                                 when {
                                     f.isFile -> fileModified(absolute)
                                     f.isDirectory -> {}
@@ -187,13 +191,13 @@ class FileWatcher {
                             }
 
                             StandardWatchEventKinds.ENTRY_DELETE -> {
+                                println("delete $absolute")
                                 if (directories.containsKey(absolute)) {
                                     unregisterDirTree(absolute)
                                 } else {
                                     fileDeleted(absolute)
                                 }
                             }
-
                         }
                     }
                 }

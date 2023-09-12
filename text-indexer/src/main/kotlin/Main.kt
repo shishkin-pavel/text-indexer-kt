@@ -1,11 +1,18 @@
 import kotlinx.coroutines.*
+import java.nio.file.Path
 import kotlin.io.path.Path
 import kotlin.system.exitProcess
+import kotlin.system.measureNanoTime
 
 suspend fun <TPos> query(docColl: DocumentCollection<TPos>, q: String) {
-    val res = docColl.query(q)
+    lateinit var res: List<Pair<Path, ArrayList<TPos>>>
+    val time = measureNanoTime { res = docColl.query(q) }
     val totalCount = res.sumOf { it.second.size }
-    println("total results: $totalCount")
+    println(
+        "total results: $totalCount in $time nanosec in\n${
+            res.filter { it.second.isNotEmpty() }.joinToString(",\n") { "${it.first} (${it.second.size})" }
+        }"
+    )
 
 //    for ((filePath, positions) in res) {
 //        if (positions.isNotEmpty()) {
@@ -26,28 +33,33 @@ fun main(args: Array<String>) {
             println("usage: <binary> <path to watched directory>")
             exitProcess(1)
         }
-        val docColl =
-            DocumentCollection(
-                Path(args[0]),
-                CaseInsensitiveWordTokenizer(),
-                { CharIndex() },    // TODO looks dirty, is there better way like C# 'new generic type constraint' or Rust "static" trait members?
-                CoroutineScope(Dispatchers.Default)
-            )
+        coroutineScope {
+            withContext(Dispatchers.Default) {
+                DocumentCollection(
+                    Path(args[0]),
+                    CaseInsensitiveWordTokenizer(),
+                    { CharIndex() },    // TODO looks dirty, is there better way like C# 'new generic type constraint' or Rust "static" trait members?
+                    this
+                ).use { docColl ->
 
-        val x = readln()
+//                val x = readln()
+//
+//                docColl.waitForIndexFinish()
+//                println("wait finished")
 
-        docColl.waitForIndexFinish()
-        println("wait finished")
+                    var q = readln()
+                    while (true) {
+                        when {
+                            q.startsWith(EXIT_COMMAND) -> break
+                            q.startsWith(QUERY_COMMAND) -> query(docColl, q.replace(QUERY_COMMAND, ""))
+                            else -> query(docColl, q)
+                        }
 
-        var q = readln()
-        while (true) {
-            when {
-                q.startsWith(EXIT_COMMAND) -> break
-                q.startsWith(QUERY_COMMAND) -> query(docColl, q.replace(QUERY_COMMAND, ""))
-                else -> query(docColl, q)
+                        q = readln()
+                    }
+                }
+                println("finish")
             }
-
-            q = readln()
         }
     }
 }

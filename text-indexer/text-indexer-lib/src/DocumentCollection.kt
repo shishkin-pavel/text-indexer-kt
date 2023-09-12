@@ -2,6 +2,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import java.nio.file.Path
 import kotlinx.coroutines.*
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 @OptIn(DelicateCoroutinesApi::class)
@@ -9,20 +10,27 @@ class DocumentCollection<TPos>(
     rootPath: Path,
     private val tokenizer: Tokenizer<TPos>,
     private val emptyIndex: () -> Index<TPos>,
-    scope: CoroutineScope
-) {
-    private val documents = ConcurrentHashMap<Path, Document<TPos>>()
+    private val scope: CoroutineScope
+) : AutoCloseable {
+    private val documents = ConcurrentHashMap<String, Document<TPos>>()
 
     private val fileWatcherContext = newSingleThreadContext("file watcher thread")
-    private val fileIndexerContext = newSingleThreadContext("file indexer thread")
+    private val fileIndexerContext =
+        newSingleThreadContext("file indexer thread") //todo eliminate second single-thread context?
     private val fileWatcher = FileWatcher()
 
+    private val fileWatcherJob: Job
+
     init {
-        scope.launch(fileWatcherContext) {
-            fileWatcher.watchDirectoryTree(rootPath)
-        }
-        scope.launch(fileIndexerContext) {
-            watchChanges(fileWatcher.eventChannel)
+        fileWatcherJob = scope.launch {
+            coroutineScope {
+                launch(fileWatcherContext) {
+                    fileWatcher.watchDirectoryTree(rootPath)
+                }
+                launch(fileIndexerContext) {
+                    watchChanges(fileWatcher.eventChannel)
+                }
+            }
         }
     }
 
@@ -30,7 +38,7 @@ class DocumentCollection<TPos>(
         for (fwe in fileWatchEvents) {
             when (fwe.kind) {
                 FileWatchEvent.Kind.Created -> {
-                    val doc = Document(fwe.path.toFile(), tokenizer, emptyIndex)
+                    val doc = Document(File(fwe.path), tokenizer, emptyIndex, scope)
                     documents[fwe.path] = doc
                 }
 
@@ -68,5 +76,13 @@ class DocumentCollection<TPos>(
                 async { it.getIndex() }
             }.map { it.await() }
         }
+    }
+
+    override fun close() {
+        fileWatcherJob.cancel()
+        for (d in documents.values) {
+            d.close()
+        }
+        println("cancel requested")
     }
 }

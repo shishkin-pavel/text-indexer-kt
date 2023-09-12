@@ -1,13 +1,26 @@
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.lang.Exception
 
-class Document<TPos>(val file: File, private var tokenizer: Tokenizer<TPos>, val emptyIndex: () -> Index<TPos>) :
+class Document<TPos>(
+    val file: File,
+    private var tokenizer: Tokenizer<TPos>,
+    val emptyIndex: () -> Index<TPos>,
+    private val scope: CoroutineScope
+) :
     AutoCloseable {
-    private val scope = CoroutineScope(Dispatchers.IO)
+    @Volatile
     private var deferredIndex: CompletableDeferred<Index<TPos>> = CompletableDeferred()
+
+    @Volatile
     private var indexBuildJob: Job? = null
+
+    @Volatile
     private var isClosed = false
+
+    private val resultSettingMonitor = Mutex()
 
     init {
         scope.launch { buildIndex() }
@@ -16,22 +29,25 @@ class Document<TPos>(val file: File, private var tokenizer: Tokenizer<TPos>, val
     private fun buildIndex() {
         indexBuildJob = scope.launch {
             val index: Index<TPos> = emptyIndex()
-            val scope = CoroutineScope(Dispatchers.IO)
-            val tch = tokenizer.tokenize(file, scope)
+            val tch = tokenizer.tokenize(file, this)
             for ((token, pos) in tch) {
                 index.addToken(token, pos)
             }
-            deferredIndex.complete(index)
-            indexBuildJob = null
+            resultSettingMonitor.withLock {
+                deferredIndex.complete(index)
+                indexBuildJob = null
+            }
         }
     }
 
-    fun rebuildIndex() {
-        indexBuildJob?.cancel()
-        if (!deferredIndex.isActive) {
-            val old = deferredIndex
-            deferredIndex = CompletableDeferred()
-            old.cancel()
+    suspend fun rebuildIndex() {
+        resultSettingMonitor.withLock {
+            indexBuildJob?.cancel()
+            if (!deferredIndex.isActive) {
+                val old = deferredIndex
+                deferredIndex = CompletableDeferred()
+                old.cancel()
+            }
         }
 
         buildIndex()
@@ -52,8 +68,11 @@ class Document<TPos>(val file: File, private var tokenizer: Tokenizer<TPos>, val
     }
 
     override fun close() {
+        if (isClosed) {
+            return
+        }
         isClosed = true
-        scope.cancel("document was disposed")
+        indexBuildJob?.cancel("document was disposed")
         if (deferredIndex.isActive) {
             deferredIndex.cancel("document was disposed")
         }

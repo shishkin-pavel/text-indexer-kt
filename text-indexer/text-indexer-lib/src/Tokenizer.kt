@@ -78,21 +78,23 @@ class CaseInsensitiveWordTokenizer(private val defaultEncoding: Charset = Charse
         if (encoding != null) {
             return Result.success(Charset.availableCharsets()[encoding] ?: defaultEncoding)
         }
-        return Result.failure(java.lang.Exception("seems like a non-text file"))
+        return Result.failure(Exception("seems like a non-text file"))
     }
 
     override fun tokenize(
         file: File,
         scope: CoroutineScope
     ): Channel<Pair<String, CharIndex.LinePos>> {
-        val ch = Channel<Pair<String, CharIndex.LinePos>>(10)
+        val ch = Channel<Pair<String, CharIndex.LinePos>>(100)
 
         scope.launch {
             withContext(Dispatchers.IO) {
                 retry {
-                    val charset = detectCharset(file)
-                    if (charset.isSuccess) {
-                        file.useLines(charset.getOrThrow()) { lines ->
+                    println("tokenization start for ${file.toPath()} on thread $coroutineContext")
+                    var tokenCount = 0
+                    val charsetRes = detectCharset(file)
+                    charsetRes.onSuccess { charset ->
+                        file.useLines(charset) { lines ->
                             lines.forEachIndexed { lineNum, line ->
                                 val tokenBoundaries = ArrayList<Pair<Int, Int>>()
                                 var tokenStart: Int? = null
@@ -116,11 +118,13 @@ class CaseInsensitiveWordTokenizer(private val defaultEncoding: Charset = Charse
                                     val str = sanitizeToken(line.substring(s..e))
                                     val p = Pair(str, CharIndex.LinePos(lineNum + 1, s))
                                     ch.send(p)
+                                    tokenCount++
                                 }
                             }
                         }
                     }
                     ch.close()
+                    println("tokenization finished for ${file.toPath()}: $tokenCount")
                 }
             }
         }
