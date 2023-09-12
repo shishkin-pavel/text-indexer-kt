@@ -1,12 +1,14 @@
 import kotlinx.coroutines.async
 import kotlinx.coroutines.*
 import java.io.File
+import java.io.IOException
 import java.nio.file.*
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlin.collections.ArrayList
 import kotlin.io.path.absolute
+import kotlin.io.path.exists
 
 fun <T, TData, TColl : Collection<T>> bfs(
     start: T,
@@ -35,9 +37,23 @@ fun <T, TData, TColl : Collection<T>> bfs(
     return result
 }
 
+sealed class RegisterDirResult {
+    data object Ok : RegisterDirResult()
+    data object AlreadyWatched : RegisterDirResult()
+    data class Error(val ex: Exception) : RegisterDirResult()
+
+}
+
+sealed class UnegisterDirResult {
+    data object Ok : UnegisterDirResult()
+    data object ParentWatched : UnegisterDirResult()
+    data object WasNotWatched : UnegisterDirResult()
+    data class Error(val ex: Exception) : UnegisterDirResult()
+
+}
+
 @OptIn(DelicateCoroutinesApi::class)
 class DocumentCollection<TPos>(
-    rootPath: Path,
     private val tokenizer: Tokenizer<TPos>,
     private val emptyIndex: () -> Index<TPos>,
     private val scope: CoroutineScope
@@ -56,29 +72,9 @@ class DocumentCollection<TPos>(
         fileWatcherJob = scope.launch {
             coroutineScope {
                 launch(fileWatcherContext) {
-                    fileWatcher.watchDirectoryTree(rootPath)
+                    fileWatcher.watch()
                 }
             }
-        }
-    }
-
-    private data class NestedItems(val dirs: HashSet<Path>, val files: HashSet<Path>) {
-        constructor() : this(HashSet(), HashSet())
-
-        fun addDir(absolutePath: Path) {
-            dirs.add(absolutePath)
-        }
-
-        fun removeDir(absolutePath: Path) {
-            dirs.remove(absolutePath)
-        }
-
-        fun addFile(absolutePath: Path) {
-            files.add(absolutePath)
-        }
-
-        fun removeFile(absolutePath: Path): Boolean {
-            return files.remove(absolutePath)
         }
     }
 
@@ -105,12 +101,41 @@ class DocumentCollection<TPos>(
         }
     }
 
+    suspend fun registerDir(path: Path): RegisterDirResult {
+        return fileWatcher.registerDirTree(path)
+    }
+
+    suspend fun unregisterDir(path: Path): UnegisterDirResult {
+        return fileWatcher.unregisterDirTree(path)
+    }
+
     override fun close() {
+        println("cleaning up...")
         fileWatcherJob.cancel()
         for (d in documents.values) {
             d.close()
         }
-        println("cancel requested")
+        println("cleaning up finished")
+    }
+
+    private data class NestedItems(val dirs: HashSet<Path>, val files: HashSet<Path>) {
+        constructor() : this(HashSet(), HashSet())
+
+        fun addDir(absolutePath: Path) {
+            dirs.add(absolutePath)
+        }
+
+        fun removeDir(absolutePath: Path) {
+            dirs.remove(absolutePath)
+        }
+
+        fun addFile(absolutePath: Path) {
+            files.add(absolutePath)
+        }
+
+        fun removeFile(absolutePath: Path): Boolean {
+            return files.remove(absolutePath)
+        }
     }
 
     /**
@@ -187,38 +212,63 @@ class DocumentCollection<TPos>(
             getInnerElements(absolutePath.parent).removeDir(absolutePath)
         }
 
-        private fun unregisterDirTree(absolutePath: Path) {
-            val nestedItems =
-                bfs(
-                    absolutePath,
-                    { nesting[it]?.dirs?.toList() ?: emptyList() },
-                    { nesting[it]?.files?.toList() ?: emptyList() })
-            for ((dir, files) in nestedItems) {
-                unregisterDir(dir)
-                for (f in files) {
-                    deleteFile(f)
-                }
-            }
-        }
-
-        private suspend fun registerDirTree(absolutePath: Path) {
-            withContext(Dispatchers.IO) {
-                val paths = Files.walk(absolutePath).toList()
-                paths.forEach { path ->
-                    val absolute = canonicalizePath(path)
-                    when {
-                        Files.isDirectory(absolute) -> registerDir(absolute)
-                        Files.isRegularFile(absolute) -> createFile(absolute)
+        suspend fun registerDirTree(path: Path): RegisterDirResult {
+            val res = scope.async {
+                val absolutePath = canonicalizePath(path)
+                if (directories.containsKey(absolutePath)) {
+                    RegisterDirResult.AlreadyWatched
+                } else {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            Files.walk(absolutePath).forEach { path ->  // TODO replace with Files.walkFileTree
+                                val absolute = canonicalizePath(path)
+                                when {
+                                    Files.isDirectory(absolute) -> registerDir(absolute)
+                                    Files.isRegularFile(absolute) -> createFile(absolute)
+                                }
+                            }
+                        }
+                    } catch (ex: Exception) {
+                        RegisterDirResult.Error(ex)
                     }
+                    RegisterDirResult.Ok
                 }
+            }
+            return res.await()
+        }
+
+        suspend fun unregisterDirTree(path: Path): UnegisterDirResult {
+            val absolutePath = canonicalizePath(path)
+            val parent = absolutePath.parent
+            if (!directories.containsKey(absolutePath)) {
+                return UnegisterDirResult.WasNotWatched
+            }
+            if (directories.containsKey(parent)) {
+                return UnegisterDirResult.ParentWatched
+            } else {
+                return scope.async {
+                    try {
+                        val nestedItems =
+                            bfs(
+                                absolutePath,
+                                { nesting[it]?.dirs?.toList() ?: emptyList() },
+                                { nesting[it]?.files?.toList() ?: emptyList() })
+                        for ((dir, files) in nestedItems) {
+                            unregisterDir(dir)
+                            for (f in files) {
+                                deleteFile(f)
+                            }
+                        }
+                        UnegisterDirResult.Ok
+                    } catch (ex: Exception) {
+                        UnegisterDirResult.Error(ex)
+                    }
+                }.await()
             }
         }
 
-        suspend fun watchDirectoryTree(rootPath: Path) {
+        suspend fun watch() {
             withContext(Dispatchers.IO) {
-                @Suppress("NAME_SHADOWING") val rootPath = rootPath.absolute()
-                registerDirTree(rootPath)
-
                 while (isActive) {
                     val watchKey = watchService.poll(100, TimeUnit.MILLISECONDS) ?: continue
 
@@ -238,7 +288,6 @@ class DocumentCollection<TPos>(
 
                             when (kind) {
                                 StandardWatchEventKinds.ENTRY_CREATE -> {
-                                    println("create $absolute")
                                     when {
                                         f.isFile -> createFile(absolute)
                                         f.isDirectory -> registerDirTree(absolute)
@@ -246,7 +295,6 @@ class DocumentCollection<TPos>(
                                 }
 
                                 StandardWatchEventKinds.ENTRY_MODIFY -> {
-                                    println("modify $absolute")
                                     when {
                                         f.isFile -> modifyFile(absolute)
                                         f.isDirectory -> {}
@@ -254,7 +302,6 @@ class DocumentCollection<TPos>(
                                 }
 
                                 StandardWatchEventKinds.ENTRY_DELETE -> {
-                                    println("delete $absolute")
                                     if (directories.containsKey(absolute)) {
                                         unregisterDirTree(absolute)
                                     } else {

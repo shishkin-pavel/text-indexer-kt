@@ -6,6 +6,7 @@ import java.nio.ByteBuffer
 import java.nio.channels.AsynchronousFileChannel
 import java.nio.charset.Charset
 import java.nio.file.StandardOpenOption
+import kotlin.system.measureNanoTime
 
 const val BUF_SIZE = 4096
 const val MAX_BYTES = 20 * BUF_SIZE
@@ -32,7 +33,6 @@ suspend fun <T> retry(
         try {
             return@retry Result.success(block())
         } catch (e: Exception) {
-            println("retrying: ${e.message}")
             lastEx = e
         }
 
@@ -90,41 +90,43 @@ class CaseInsensitiveWordTokenizer(private val defaultEncoding: Charset = Charse
         scope.launch {
             withContext(Dispatchers.IO) {
                 retry {
-                    println("tokenization start for ${file.toPath()} on thread $coroutineContext")
+//                    println("tokenization start for ${file.toPath()}")
                     var tokenCount = 0
-                    val charsetRes = detectCharset(file)
-                    charsetRes.onSuccess { charset ->
-                        file.useLines(charset) { lines ->
-                            lines.forEachIndexed { lineNum, line ->
-                                val tokenBoundaries = ArrayList<Pair<Int, Int>>()
-                                var tokenStart: Int? = null
-                                line.forEachIndexed { idx, c ->
-                                    if (validWordChar(c)) {
-                                        if (tokenStart == null) {
-                                            tokenStart = idx
-                                        }
-                                    } else {
-                                        if (tokenStart != null) {
-                                            tokenBoundaries += Pair(tokenStart!!, (idx - 1))
-                                            tokenStart = null
+                    val tokenizationTime = measureNanoTime {
+                        val charsetRes = detectCharset(file)
+                        charsetRes.onSuccess { charset ->
+                            file.useLines(charset) { lines ->
+                                lines.forEachIndexed { lineNum, line ->
+                                    val tokenBoundaries = ArrayList<Pair<Int, Int>>()
+                                    var tokenStart: Int? = null
+                                    line.forEachIndexed { idx, c ->
+                                        if (validWordChar(c)) {
+                                            if (tokenStart == null) {
+                                                tokenStart = idx
+                                            }
+                                        } else {
+                                            if (tokenStart != null) {
+                                                tokenBoundaries += Pair(tokenStart!!, (idx - 1))
+                                                tokenStart = null
+                                            }
                                         }
                                     }
-                                }
-                                if (tokenStart != null) {
-                                    tokenBoundaries += Pair(tokenStart!!, (line.length - 1))
-                                }
+                                    if (tokenStart != null) {
+                                        tokenBoundaries += Pair(tokenStart!!, (line.length - 1))
+                                    }
 
-                                for ((s, e) in tokenBoundaries) {
-                                    val str = sanitizeToken(line.substring(s..e))
-                                    val p = Pair(str, CharIndex.LinePos(lineNum + 1, s))
-                                    ch.send(p)
-                                    tokenCount++
+                                    for ((s, e) in tokenBoundaries) {
+                                        val str = sanitizeToken(line.substring(s..e))
+                                        val p = Pair(str, CharIndex.LinePos(lineNum + 1, s))
+                                        ch.send(p)
+                                        tokenCount++
+                                    }
                                 }
                             }
                         }
+                        ch.close()
                     }
-                    ch.close()
-                    println("tokenization finished for ${file.toPath()}: $tokenCount")
+//                    println("tokenization for ${file.toPath()} finished in $tokenizationTime ns: got $tokenCount tokens")
                 }
             }
         }
