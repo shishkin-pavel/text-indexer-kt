@@ -263,6 +263,9 @@ class DocumentCollection<TPos>(
             } else {
                 return scope.async {
                     try {
+                        // "watch" coroutine and external call to unregister directory could lead to inconsistent state of `nesting` structure,
+                        // which would result in insufficient unsubscribing from watch
+                        // it would be redone completely with new index structure
                         val nestedItems =
                             bfs(
                                 absolutePath,
