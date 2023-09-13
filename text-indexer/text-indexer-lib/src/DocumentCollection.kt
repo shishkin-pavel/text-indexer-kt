@@ -5,10 +5,11 @@ import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.absolute
-import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlin.io.path.isDirectory
 
-val logger = KotlinLogging.logger {}
+//import io.github.oshai.kotlinlogging.KotlinLogging
+
+//val logger = KotlinLogging.logger {}
 
 fun <T, TData, TColl : Collection<T>> bfs(
     start: T,
@@ -89,7 +90,7 @@ class DocumentCollection<TPos>(
     }
 
     suspend fun waitForIndexFinish() {
-        logger.info { "waiting for ${documents.size} indexes" }
+//        logger.info { "waiting for ${documents.size} indexes" }
         val indexes = coroutineScope {
             documents.values.map {
                 async { it.getIndex() }
@@ -106,12 +107,12 @@ class DocumentCollection<TPos>(
     }
 
     override fun close() {
-        logger.info { "cleaning up..." }
+//        logger.info { "cleaning up..." }
         fileWatcherJob.cancel()
         for (d in documents.values) {
             d.close()
         }
-        logger.info { "cleaning up finished" }
+//        logger.info { "cleaning up finished" }
     }
 
     private data class NestedItems(val dirs: HashSet<Path>, val files: HashSet<Path>) {

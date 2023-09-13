@@ -90,7 +90,7 @@ class CaseInsensitiveWordTokenizer(private val defaultEncoding: Charset = Charse
         scope.launch {
             withContext(Dispatchers.IO) {
                 retry {
-                    logger.info { "tokenization start for ${file.toPath()}" }
+//                    logger.info { "tokenization start for ${file.toPath()}" }
                     var tokenCount = 0
                     val tokenizationTime = measureTimeMillis {
                         val charsetRes = detectCharset(file)
@@ -126,7 +126,7 @@ class CaseInsensitiveWordTokenizer(private val defaultEncoding: Charset = Charse
                         }
                         ch.close()
                     }
-                    logger.info { ("tokenization for ${file.toPath()} finished in $tokenizationTime ms, got $tokenCount tokens") }
+//                    logger.info { ("tokenization for ${file.toPath()} finished in $tokenizationTime ms, got $tokenCount tokens") }
                 }
             }
         }
