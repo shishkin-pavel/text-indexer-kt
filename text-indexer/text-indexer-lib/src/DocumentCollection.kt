@@ -1,6 +1,8 @@
 import kotlinx.coroutines.*
 import java.io.File
 import java.nio.file.*
+import java.nio.file.StandardWatchEventKinds.*
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -190,9 +192,9 @@ class DocumentCollection<TPos>(
             if (!directories.containsKey(absolutePath)) {
                 val key = absolutePath.register(
                     watchService,
-                    StandardWatchEventKinds.ENTRY_CREATE,
-                    StandardWatchEventKinds.ENTRY_MODIFY,
-                    StandardWatchEventKinds.ENTRY_DELETE
+                    ENTRY_CREATE,
+                    ENTRY_MODIFY,
+                    ENTRY_DELETE
                 )
                 directories[absolutePath] = key
                 key2dir[key] = absolutePath
@@ -220,13 +222,26 @@ class DocumentCollection<TPos>(
                             if (!absolutePath.isDirectory()) {
                                 throw Exception("$path is not a directory")
                             }
-                            Files.walk(absolutePath).forEach { path ->  // TODO replace with Files.walkFileTree
-                                val absolute = canonicalizePath(path)
-                                when {
-                                    Files.isDirectory(absolute) -> registerDir(absolute)
-                                    Files.isRegularFile(absolute) -> createFile(absolute)
+                            Files.walkFileTree(absolutePath, object : SimpleFileVisitor<Path>() {
+                                override fun preVisitDirectory(
+                                    subPath: Path,
+                                    attrs: BasicFileAttributes
+                                ): FileVisitResult {
+                                    val absolute = canonicalizePath(subPath)
+                                    return if (directories.containsKey(absolute)) {
+                                        FileVisitResult.SKIP_SUBTREE
+                                    } else {
+                                        registerDir(absolute)
+                                        FileVisitResult.CONTINUE
+                                    }
                                 }
-                            }
+
+                                override fun visitFile(file: Path?, attrs: BasicFileAttributes?): FileVisitResult {
+                                    val absolute = canonicalizePath(file!!)
+                                    createFile(absolute)
+                                    return FileVisitResult.CONTINUE
+                                }
+                            })
                         }
                         RegisterDirResult.Ok
                     } catch (ex: Exception) {
@@ -287,21 +302,21 @@ class DocumentCollection<TPos>(
                             val f = absolute.toFile()
 
                             when (kind) {
-                                StandardWatchEventKinds.ENTRY_CREATE -> {
+                                ENTRY_CREATE -> {
                                     when {
                                         f.isFile -> createFile(absolute)
                                         f.isDirectory -> registerDirTree(absolute)
                                     }
                                 }
 
-                                StandardWatchEventKinds.ENTRY_MODIFY -> {
+                                ENTRY_MODIFY -> {
                                     when {
                                         f.isFile -> modifyFile(absolute)
                                         f.isDirectory -> {}
                                     }
                                 }
 
-                                StandardWatchEventKinds.ENTRY_DELETE -> {
+                                ENTRY_DELETE -> {
                                     if (directories.containsKey(absolute)) {
                                         unregisterDirTree(absolute)
                                     } else {
