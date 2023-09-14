@@ -14,10 +14,26 @@ const val MAX_BYTES = 20 * BUF_SIZE
 interface Tokenizer<TPos> {
     fun sanitizeToken(str: String): String
 
-    fun tokenize(
-        file: File,
-        scope: CoroutineScope
-    ): Channel<Pair<String, TPos>>
+    fun tokenize(file: File, scope: CoroutineScope): Channel<Pair<String, TPos>>
+
+    // rewrite without use of channels
+    suspend fun tokens(file: File, scope: CoroutineScope): MutableMap<String, MutableList<TPos>> {
+        val m = mutableMapOf<String, MutableList<TPos>>()
+
+        val ch = tokenize(file, scope)
+        for ((token, pos) in ch) {
+            m.compute(token) { _, positions ->
+                if (positions == null) {
+                    mutableListOf(pos)
+                } else {
+                    positions.add(pos)
+                    positions
+                }
+            }
+        }
+
+        return m
+    }
 }
 
 suspend fun <T> retry(
@@ -42,8 +58,14 @@ suspend fun <T> retry(
     return Result.failure(lastEx!!)
 }
 
+data class LinePos(val line: Int, val shift: Int) {
+    override fun toString(): String {
+        return "$line:$shift"
+    }
+}
+
 class CaseInsensitiveWordTokenizer(private val defaultEncoding: Charset = Charsets.UTF_8) :
-    Tokenizer<CharIndex.LinePos> {
+    Tokenizer<LinePos> {
     private val punctuationInWord = setOf('\'', '-', '_')
 
     private fun validWordChar(c: Char): Boolean {
@@ -84,8 +106,8 @@ class CaseInsensitiveWordTokenizer(private val defaultEncoding: Charset = Charse
     override fun tokenize(
         file: File,
         scope: CoroutineScope
-    ): Channel<Pair<String, CharIndex.LinePos>> {
-        val ch = Channel<Pair<String, CharIndex.LinePos>>(100)
+    ): Channel<Pair<String, LinePos>> {
+        val ch = Channel<Pair<String, LinePos>>(100)
 
         scope.launch {
             withContext(Dispatchers.IO) {
@@ -117,7 +139,7 @@ class CaseInsensitiveWordTokenizer(private val defaultEncoding: Charset = Charse
 
                                     for ((s, e) in tokenBoundaries) {
                                         val str = sanitizeToken(line.substring(s..e))
-                                        val p = Pair(str, CharIndex.LinePos(lineNum + 1, s))
+                                        val p = Pair(str, LinePos(lineNum + 1, s))
                                         ch.send(p)
                                         tokenCount++
                                     }

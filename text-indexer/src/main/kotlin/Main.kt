@@ -1,16 +1,18 @@
 import kotlinx.coroutines.*
 import java.nio.file.Path
 import kotlin.io.path.Path
+import kotlin.system.measureNanoTime
 import kotlin.system.measureTimeMillis
 
-suspend fun <TPos> query(docColl: DocumentCollection<TPos>, q: String) {
+suspend fun <TPos> query(docColl: SingleIndexDocumentCollection<TPos>, q: String) {
     println("querying for \"$q\" ...")
-    lateinit var res: List<Pair<Path, ArrayList<TPos>>>
-    val time = measureTimeMillis { res = docColl.query(q) }
-    val totalCount = res.sumOf { it.second.size }
+    lateinit var res: Map<Path, List<TPos>>
+    val time = measureNanoTime { res = docColl.query(q) }
+    val x = res.toList()
+    val totalCount = x.sumOf { it.second.size }
     println(
-        "total results for \"$q\": $totalCount in $time ms:\n\t${
-            res.filter { it.second.isNotEmpty() }
+        "total results for \"$q\": $totalCount in $time ns:\n\t${
+            x.filter { it.second.isNotEmpty() }
                 .joinToString(",\n\t") { "${it.first} (${it.second.size}): [${it.second.joinToString(", ")}]" }
         }"
     )
@@ -25,11 +27,7 @@ fun main() {
     runBlocking {
         coroutineScope {
             withContext(Dispatchers.Default) {
-                DocumentCollection(
-                    CaseInsensitiveWordTokenizer(),
-                    { CharIndex() },    // TODO looks dirty, is there better way like C# 'new generic type constraint' or Rust "static" trait members?
-                    this
-                ).use { docColl ->
+                SingleIndexDocumentCollection(CaseInsensitiveWordTokenizer(), this).use { docColl ->
                     var q = readln()
                     while (true) {
                         when {
@@ -37,20 +35,20 @@ fun main() {
                             q.startsWith(QUERY_COMMAND) -> query(docColl, q.replace(QUERY_COMMAND, ""))
                             q.startsWith(REGISTER_COMMAND) -> {
                                 val path = q.replace(REGISTER_COMMAND, "")
-                                when (val res = docColl.registerDir(Path(path))) {
+                                when (val res = docColl.addWatch(Path(path))) {
                                     RegisterDirResult.Ok -> println("'$path' being watched now")
                                     RegisterDirResult.AlreadyWatched -> println("'$path' is already watched")
                                     is RegisterDirResult.Error -> println("'$path' watch encountered an error: ${res.ex}")
                                 }
                             }
-
+//
                             q.startsWith(UNREGISTER_COMMAND) -> {
                                 val path = q.replace(UNREGISTER_COMMAND, "")
-                                when (val res = docColl.unregisterDir(Path(path))) {
-                                    is UnegisterDirResult.Error -> println("'$path' unwatch encountered an error: ${res.ex}")
-                                    UnegisterDirResult.Ok -> println("'$path' is not watched now")
-                                    UnegisterDirResult.ParentWatched -> println("'$path''s parent is watched (so it would be watched)")
-                                    UnegisterDirResult.WasNotWatched -> println("'$path' was not watched already")
+                                when (val res = docColl.removeWatch(Path(path))) {
+                                    is UnregisterDirResult.Error -> println("'$path' unwatch encountered an error: ${res.ex}")
+                                    UnregisterDirResult.Ok -> println("'$path' is not watched now")
+                                    UnregisterDirResult.ParentWatched -> println("'$path''s parent is watched (so it would be watched)")
+                                    UnregisterDirResult.WasNotWatched -> println("'$path' was not watched already")
                                 }
                             }
 
