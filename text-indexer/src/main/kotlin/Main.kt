@@ -20,8 +20,8 @@ suspend fun <TPos> query(docColl: SingleIndexDocumentCollection<TPos>, q: String
 
 const val EXIT_COMMAND = "exit"
 const val QUERY_COMMAND = "search "
-const val REGISTER_COMMAND = "add "
-const val UNREGISTER_COMMAND = "remove "
+const val ADD_WATCH_COMMAND = "add "
+const val REMOVE_WATCH_COMMAND = "remove "
 
 fun main() {
     runBlocking {
@@ -32,27 +32,44 @@ fun main() {
                     while (true) {
                         when {
                             q.startsWith(EXIT_COMMAND) -> break
-                            q.startsWith(QUERY_COMMAND) -> query(docColl, q.replace(QUERY_COMMAND, ""))
-                            q.startsWith(REGISTER_COMMAND) -> {
-                                val path = q.replace(REGISTER_COMMAND, "")
-                                when (val res = docColl.addWatch(Path(path))) {
-                                    RegisterDirResult.Ok -> println("'$path' being watched now")
-                                    RegisterDirResult.AlreadyWatched -> println("'$path' is already watched")
-                                    is RegisterDirResult.Error -> println("'$path' watch encountered an error: ${res.ex}")
+                            q.startsWith(QUERY_COMMAND) -> launch { query(docColl, q.replace(QUERY_COMMAND, "")) }
+                            q.startsWith(ADD_WATCH_COMMAND) -> launch {
+                                val path = q.replace(ADD_WATCH_COMMAND, "")
+
+                                try {
+                                    val time = measureTimeMillis {
+                                        val (resD, indexD) = docColl.addWatch(Path(path))
+                                        when (val res = resD.await()) {
+                                            RegisterDirResult.Ok -> println("'$path' being watched now")
+                                            RegisterDirResult.AlreadyWatched -> println("'$path' is already watched")
+                                            is RegisterDirResult.Error -> println("'$path' watch encountered an error: ${res.ex}")
+                                        }
+                                        indexD.await()
+                                    }
+                                    println("Indexing finished! it took $time ms since watch add (+ on-line file watches and other watch changes)")
+                                } catch (_: Exception) {
                                 }
                             }
 //
-                            q.startsWith(UNREGISTER_COMMAND) -> {
-                                val path = q.replace(UNREGISTER_COMMAND, "")
-                                when (val res = docColl.removeWatch(Path(path))) {
-                                    is UnregisterDirResult.Error -> println("'$path' unwatch encountered an error: ${res.ex}")
-                                    UnregisterDirResult.Ok -> println("'$path' is not watched now")
-                                    UnregisterDirResult.ParentWatched -> println("'$path''s parent is watched (so it would be watched)")
-                                    UnregisterDirResult.WasNotWatched -> println("'$path' was not watched already")
+                            q.startsWith(REMOVE_WATCH_COMMAND) -> launch {
+                                val path = q.replace(REMOVE_WATCH_COMMAND, "")
+                                try {
+                                    val time = measureTimeMillis {
+                                        val (resD, indexD) = docColl.removeWatch(Path(path))
+                                        when (val res = resD.await()) {
+                                            is UnregisterDirResult.Error -> println("'$path' unwatch encountered an error: ${res.ex}")
+                                            UnregisterDirResult.Ok -> println("'$path' is not watched now")
+                                            UnregisterDirResult.ParentWatched -> println("'$path''s parent is watched (so it would be watched)")
+                                            UnregisterDirResult.WasNotWatched -> println("'$path' was not watched already")
+                                        }
+                                        indexD.await()
+                                    }
+                                    println("Indexing finished! it took $time ms since watch remove (+ on-line file watches and other watch changes)")
+                                } catch (_: Exception) {
                                 }
                             }
 
-                            else -> query(docColl, q)
+                            else -> launch { query(docColl, q) }
                         }
 
                         q = readln()
