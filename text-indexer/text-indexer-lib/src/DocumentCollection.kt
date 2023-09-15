@@ -51,7 +51,7 @@ class DocumentCollection<TPos>(private val tokenizer: Tokenizer<TPos>, private v
     }
 
     private data class IndexMutation<TPos>(
-        val doc: Path,
+        val path: Path,
         val newTokens: Map<String, List<TPos>>,
         val processingFinish: CompletableDeferred<Unit>
     )
@@ -131,7 +131,9 @@ class DocumentCollection<TPos>(private val tokenizer: Tokenizer<TPos>, private v
             coordinationCh.send(CoordinatorMessage.WorkerStart)
             return block()
         } finally {
-            coordinationCh.send(CoordinatorMessage.WorkerEnd)
+            withContext(NonCancellable) {
+                coordinationCh.send(CoordinatorMessage.WorkerEnd)
+            }
         }
     }
 
@@ -139,12 +141,9 @@ class DocumentCollection<TPos>(private val tokenizer: Tokenizer<TPos>, private v
         val ch = Channel<IndexMutation<TPos>>()
         val trie = Trie<TPos>()
         val job = scope.launch(CoroutineName("'$char' shard")) {
-            // TODO remove old doc tokens first
-            for (p in ch) {
-                for ((token, pos) in p.newTokens) {
-                    trie.insert(token, p.doc, pos)
-                }
-                p.processingFinish.complete(Unit)
+            for (mutation in ch) {
+                trie.set(mutation.path, mutation.newTokens)
+                mutation.processingFinish.complete(Unit)
             }
         }
         shardJobs.add(job)
@@ -214,6 +213,7 @@ class DocumentCollection<TPos>(private val tokenizer: Tokenizer<TPos>, private v
             return
         }
         val startedJob = scope.launch(CoroutineName("file delete $path")) {
+            val thatJob = coroutineContext[Job.Key]
             coroutineScope {
                 startWorker {
                     val notPresentShards = indexes.keys.toSet()
@@ -225,8 +225,12 @@ class DocumentCollection<TPos>(private val tokenizer: Tokenizer<TPos>, private v
                     }.forEach { it.await() }
                 }
                 fileJobs.compute(path) { _, job ->
-                    job?.cancel()
-                    null
+                    if (job == thatJob) {
+                        job?.cancel()
+                        null
+                    } else {
+                        job
+                    }
                 }
             }
         }

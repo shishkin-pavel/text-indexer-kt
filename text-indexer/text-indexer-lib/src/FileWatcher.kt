@@ -141,6 +141,40 @@ class FileWatcher(
         directoryContent[absolutePath.parent]?.removeDir(absolutePath)
     }
 
+    private suspend fun addDirTree(absolutePath: Path) {
+        withContext(Dispatchers.IO) {
+            if (!absolutePath.isDirectory()) {
+                throw Exception("$absolutePath is not a directory")
+            }
+            Files.walkFileTree(absolutePath, object : SimpleFileVisitor<Path>() {
+                override fun preVisitDirectory(
+                    subPath: Path,
+                    attrs: BasicFileAttributes
+                ): FileVisitResult {
+                    if (isCancelRequested) {
+                        return FileVisitResult.TERMINATE
+                    }
+                    val absolute = canonicalizePath(subPath)
+                    return if (directories.containsKey(absolute)) {
+                        FileVisitResult.SKIP_SUBTREE
+                    } else {
+                        registerDir(absolute)
+                        FileVisitResult.CONTINUE
+                    }
+                }
+
+                override fun visitFile(file: Path?, attrs: BasicFileAttributes?): FileVisitResult {
+                    if (isCancelRequested) {
+                        return FileVisitResult.TERMINATE
+                    }
+                    val absolute = canonicalizePath(file!!)
+                    createFile(absolute)
+                    return FileVisitResult.CONTINUE
+                }
+            })
+        }
+    }
+
     suspend fun registerDirTree(path: Path): RegisterDirResult {
         val res = scope.async {
             val absolutePath = canonicalizePath(path)
@@ -148,44 +182,28 @@ class FileWatcher(
                 RegisterDirResult.AlreadyWatched
             } else {
                 try {
-                    withContext(Dispatchers.IO) {
-                        if (!absolutePath.isDirectory()) {
-                            throw Exception("$path is not a directory")
-                        }
-                        Files.walkFileTree(absolutePath, object : SimpleFileVisitor<Path>() {
-                            override fun preVisitDirectory(
-                                subPath: Path,
-                                attrs: BasicFileAttributes
-                            ): FileVisitResult {
-                                if (isCancelRequested) {
-                                    return FileVisitResult.TERMINATE
-                                }
-                                val absolute = canonicalizePath(subPath)
-                                return if (directories.containsKey(absolute)) {
-                                    FileVisitResult.SKIP_SUBTREE
-                                } else {
-                                    registerDir(absolute)
-                                    FileVisitResult.CONTINUE
-                                }
-                            }
-
-                            override fun visitFile(file: Path?, attrs: BasicFileAttributes?): FileVisitResult {
-                                if (isCancelRequested) {
-                                    return FileVisitResult.TERMINATE
-                                }
-                                val absolute = canonicalizePath(file!!)
-                                createFile(absolute)
-                                return FileVisitResult.CONTINUE
-                            }
-                        })
-                        RegisterDirResult.Ok
-                    }
+                    addDirTree(absolutePath)
+                    RegisterDirResult.Ok
                 } catch (ex: Exception) {
                     RegisterDirResult.Error(ex)
                 }
             }
         }
         return res.await()
+    }
+
+    private fun removeDirTree(absolutePath: Path) {
+        val nestedItems =
+            bfs(
+                absolutePath,
+                { directoryContent[it]?.dirs?.toList() ?: emptyList() },
+                { directoryContent[it]?.files?.toList() ?: emptyList() })
+        for ((dir, files) in nestedItems) {
+            unregisterDir(dir)
+            for (f in files) {
+                deleteFile(f)
+            }
+        }
     }
 
     suspend fun unregisterDirTree(path: Path): UnregisterDirResult {
@@ -199,17 +217,7 @@ class FileWatcher(
         } else {
             return scope.async {
                 try {
-                    val nestedItems =
-                        bfs(
-                            absolutePath,
-                            { directoryContent[it]?.dirs?.toList() ?: emptyList() },
-                            { directoryContent[it]?.files?.toList() ?: emptyList() })
-                    for ((dir, files) in nestedItems) {
-                        unregisterDir(dir)
-                        for (f in files) {
-                            deleteFile(f)
-                        }
-                    }
+                    removeDirTree(absolutePath)
                     UnregisterDirResult.Ok
                 } catch (ex: Exception) {
                     UnregisterDirResult.Error(ex)
@@ -241,7 +249,7 @@ class FileWatcher(
                             StandardWatchEventKinds.ENTRY_CREATE -> {
                                 when {
                                     f.isFile -> createFile(absolute)
-                                    f.isDirectory -> registerDirTree(absolute)
+                                    f.isDirectory -> addDirTree(absolute)
                                 }
                             }
 
@@ -254,7 +262,7 @@ class FileWatcher(
 
                             StandardWatchEventKinds.ENTRY_DELETE -> {
                                 if (directories.containsKey(absolute)) {
-                                    unregisterDirTree(absolute)
+                                    removeDirTree(absolute)
                                 } else {
                                     deleteFile(absolute)
                                 }
