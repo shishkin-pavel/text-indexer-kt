@@ -1,336 +1,277 @@
-//import kotlinx.coroutines.*
-//import java.io.File
-//import java.nio.file.*
-//import java.nio.file.StandardWatchEventKinds.*
-//import java.nio.file.attribute.BasicFileAttributes
-//import java.util.*
-//import java.util.concurrent.ConcurrentHashMap
-//import java.util.concurrent.TimeUnit
-//import kotlin.io.path.absolute
-//import kotlin.io.path.isDirectory
-//
-////import io.github.oshai.kotlinlogging.KotlinLogging
-//
-////val logger = KotlinLogging.logger {}
-//
-//fun <T, TData, TColl : Collection<T>> bfs(
-//    start: T,
-//    getChildren: (T) -> TColl,
-//    getData: (T) -> TData
-//): List<Pair<T, TData>> {
-//    val queue: Queue<T> = LinkedList()
-//    val result = mutableListOf<Pair<T, TData>>()
-//    val visited = mutableSetOf<T>()
-//
-//    queue.add(start)
-//    visited.add(start)
-//
-//    while (queue.isNotEmpty()) {
-//        val current = queue.poll()
-//        result.add(Pair(current, getData(current)))
-//
-//        for (c in getChildren(current)) {
-//            if (!visited.contains(c)) {
-//                queue.add(c)
-//                visited.add(c)
-//            }
-//        }
-//    }
-//
-//    return result
-//}
-//
-//sealed class RegisterDirResult {
-//    data object Ok : RegisterDirResult()
-//    data object AlreadyWatched : RegisterDirResult()
-//    data class Error(val ex: Exception) : RegisterDirResult()
-//
-//}
-//
-//sealed class UnegisterDirResult {
-//    data object Ok : UnegisterDirResult()
-//    data object ParentWatched : UnegisterDirResult()
-//    data object WasNotWatched : UnegisterDirResult()
-//    data class Error(val ex: Exception) : UnegisterDirResult()
-//
-//}
-//
-//@OptIn(DelicateCoroutinesApi::class)
-//class DocumentCollection<TPos>(
-//    private val tokenizer: Tokenizer<TPos>,
-//    private val emptyIndex: () -> Index<TPos>,
-//    private val scope: CoroutineScope
-//) : AutoCloseable {
-//    // switched to String instead of Path because not every pair paths with the same string-path are equal
-//    // it probably would be a problem when links will occur
-//    private val documents = ConcurrentHashMap<String, Document<TPos>>()
-//
-//    // dedicated thread for filesystem events as soon as we block on querying events
-//    private val fileWatcherContext = newSingleThreadContext("file watcher thread")
-//    private val fileWatcher = FileWatcher()
-//
-//    private val fileWatcherJob: Job = scope.launch {
-//        coroutineScope {
-//            launch(fileWatcherContext) {
-//                fileWatcher.watch()
-//            }
-//        }
-//    }
-//
-//    suspend fun query(str: String): List<Pair<Path, ArrayList<TPos>>> {
-//        return coroutineScope {
-//            async(Dispatchers.Default) {
-//                documents.values.map {
-//                    async {
-//                        Pair(it.file.toPath(), it.queryString(str))
-//                    }
-//                }.map {
-//                    it.await()
-//                }
-//            }
-//        }.await()
-//    }
-//
-//    suspend fun waitForIndexFinish() {
-////        logger.info { "waiting for ${documents.size} indexes" }
-//        val indexes = coroutineScope {
-//            documents.values.map {
-//                async { it.getIndex() }
-//            }.map { it.await() }
-//        }
-//    }
-//
-//    suspend fun registerDir(path: Path): RegisterDirResult {
-//        return fileWatcher.registerDirTree(path)
-//    }
-//
-//    suspend fun unregisterDir(path: Path): UnegisterDirResult {
-//        return fileWatcher.unregisterDirTree(path)
-//    }
-//
-//    override fun close() {
-////        logger.info { "cleaning up..." }
-//        fileWatcherJob.cancel()
-//        for (d in documents.values) {
-//            d.close()
-//        }
-////        logger.info { "cleaning up finished" }
-//    }
-//
-//    private data class NestedItems(val dirs: HashSet<Path>, val files: HashSet<Path>) {
-//        constructor() : this(HashSet(), HashSet())
-//
-//        fun addDir(absolutePath: Path) {
-//            dirs.add(absolutePath)
-//        }
-//
-//        fun removeDir(absolutePath: Path) {
-//            dirs.remove(absolutePath)
-//        }
-//
-//        fun addFile(absolutePath: Path) {
-//            files.add(absolutePath)
-//        }
-//
-//        fun removeFile(absolutePath: Path): Boolean {
-//            return files.remove(absolutePath)
-//        }
-//    }
-//
-//    /**
-//     * Class dedicated to filesystem management
-//     * Unlike outer class 'DocumentCollection', that class manages fs events/watch service, objects nesting
-//     */
-//    private inner class FileWatcher {
-//        private val watchService: WatchService = FileSystems.getDefault().newWatchService()
-//
-//        // using concurrent hash map is not necessary in current situation because we always access that maps from single-threaded coroutine context
-//        // but if is safer to switch now
-//        private val directories = ConcurrentHashMap<Path, WatchKey>()
-//        private val key2dir = ConcurrentHashMap<WatchKey, Path>()
-//
-//        private val nesting = ConcurrentHashMap<Path, NestedItems>()
-//
-//        private fun getInnerElements(absoluteDirPath: Path): NestedItems {
-//            return nesting.getOrPut(absoluteDirPath) { NestedItems() }
-//        }
-//
-//        private fun canonicalizePath(path: Path): Path {
-//            return path.absolute().normalize()
-//        }
-//
-//        private fun createFileHelper(absolutePath: Path): Document<TPos> {
-//            getInnerElements(absolutePath.parent).addFile(absolutePath)
-//            return Document(File(absolutePath.toString()), tokenizer, emptyIndex, scope)
-//        }
-//
-//        private fun createFile(absolutePath: Path) {
-//            documents.computeIfAbsent(absolutePath.toString()) {
-//                createFileHelper(absolutePath)
-//            }
-//        }
-//
-//        private fun deleteFile(absolutePath: Path) {
-//            if (getInnerElements(absolutePath.parent).removeFile(absolutePath)) {
-//                val doc = documents.remove(absolutePath.toString())
-//                doc?.close()
-//            }
-//        }
-//
-//        private suspend fun modifyFile(absolutePath: Path) {
-//            var newlyCreated = false
-//            val doc = documents.getOrPut(absolutePath.toString()) {
-//                newlyCreated = true
-//                createFileHelper(absolutePath)
-//            }
-//            if (!newlyCreated) {
-//                doc.rebuildIndex()
-//            }
-//        }
-//
-//        private fun registerDir(absolutePath: Path) {
-//            if (!directories.containsKey(absolutePath)) {
-//                val key = absolutePath.register(
-//                    watchService,
-//                    ENTRY_CREATE,
-//                    ENTRY_MODIFY,
-//                    ENTRY_DELETE
-//                )
-//                directories[absolutePath] = key
-//                key2dir[key] = absolutePath
-//                getInnerElements(absolutePath.parent).addDir(absolutePath)
-//            }
-//        }
-//
-//        private fun unregisterDir(absolutePath: Path) {
-//            val key = directories.remove(absolutePath)
-//            if (key != null) {
-//                key2dir.remove(key)
-//                key.cancel()
-//            }
-//            getInnerElements(absolutePath.parent).removeDir(absolutePath)
-//        }
-//
-//        suspend fun registerDirTree(path: Path): RegisterDirResult {
-//            val res = scope.async {
-//                val absolutePath = canonicalizePath(path)
-//                if (directories.containsKey(absolutePath)) {
-//                    RegisterDirResult.AlreadyWatched
-//                } else {
-//                    try {
-//                        withContext(Dispatchers.IO) {
-//                            if (!absolutePath.isDirectory()) {
-//                                throw Exception("$path is not a directory")
-//                            }
-//                            Files.walkFileTree(absolutePath, object : SimpleFileVisitor<Path>() {
-//                                override fun preVisitDirectory(
-//                                    subPath: Path,
-//                                    attrs: BasicFileAttributes
-//                                ): FileVisitResult {
-//                                    val absolute = canonicalizePath(subPath)
-//                                    return if (directories.containsKey(absolute)) {
-//                                        FileVisitResult.SKIP_SUBTREE
-//                                    } else {
-//                                        registerDir(absolute)
-//                                        FileVisitResult.CONTINUE
-//                                    }
-//                                }
-//
-//                                override fun visitFile(file: Path?, attrs: BasicFileAttributes?): FileVisitResult {
-//                                    val absolute = canonicalizePath(file!!)
-//                                    createFile(absolute)
-//                                    return FileVisitResult.CONTINUE
-//                                }
-//                            })
-//                        }
-//                        RegisterDirResult.Ok
-//                    } catch (ex: Exception) {
-//                        RegisterDirResult.Error(ex)
-//                    }
-//                }
-//            }
-//            return res.await()
-//        }
-//
-//        suspend fun unregisterDirTree(path: Path): UnegisterDirResult {
-//            val absolutePath = canonicalizePath(path)
-//            val parent = absolutePath.parent
-//            if (!directories.containsKey(absolutePath)) {
-//                return UnegisterDirResult.WasNotWatched
-//            }
-//            if (directories.containsKey(parent)) {
-//                return UnegisterDirResult.ParentWatched
-//            } else {
-//                return scope.async {
-//                    try {
-//                        // "watch" coroutine and external call to unregister directory could lead to inconsistent state of `nesting` structure,
-//                        // which would result in insufficient unsubscribing from watch
-//                        // it would be redone completely with new index structure
-//                        val nestedItems =
-//                            bfs(
-//                                absolutePath,
-//                                { nesting[it]?.dirs?.toList() ?: emptyList() },
-//                                { nesting[it]?.files?.toList() ?: emptyList() })
-//                        for ((dir, files) in nestedItems) {
-//                            unregisterDir(dir)
-//                            for (f in files) {
-//                                deleteFile(f)
-//                            }
-//                        }
-//                        UnegisterDirResult.Ok
-//                    } catch (ex: Exception) {
-//                        UnegisterDirResult.Error(ex)
-//                    }
-//                }.await()
-//            }
-//        }
-//
-//        suspend fun watch() {
-//            withContext(Dispatchers.IO) {
-//                while (isActive) {
-//                    val watchKey = watchService.poll(100, TimeUnit.MILLISECONDS) ?: continue
-//
-//                    val path = key2dir[watchKey]
-//
-//                    val watchEvents = watchKey.pollEvents()
-//                    watchKey.reset()
-//
-//                    if (path != null) {
-//                        for (event in watchEvents) {
-//                            val kind = event.kind()
-//
-//                            val name: Path = event.context() as Path
-//                            val absolute = canonicalizePath(path.resolve(name))
-//
-//                            val f = absolute.toFile()
-//
-//                            when (kind) {
-//                                ENTRY_CREATE -> {
-//                                    when {
-//                                        f.isFile -> createFile(absolute)
-//                                        f.isDirectory -> registerDirTree(absolute)
-//                                    }
-//                                }
-//
-//                                ENTRY_MODIFY -> {
-//                                    when {
-//                                        f.isFile -> modifyFile(absolute)
-//                                        f.isDirectory -> {}
-//                                    }
-//                                }
-//
-//                                ENTRY_DELETE -> {
-//                                    if (directories.containsKey(absolute)) {
-//                                        unregisterDirTree(absolute)
-//                                    } else {
-//                                        deleteFile(absolute)
-//                                    }
-//                                }
-//                            }
-//                        }
-//                    }
-//                }
-//            }
-//        }
-//    }
-//}
+@file:OptIn(ExperimentalCoroutinesApi::class)
+
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import java.nio.file.*
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
+
+class DocumentCollection<TPos>(private val tokenizer: Tokenizer<TPos>, private val scope: CoroutineScope) :
+    AutoCloseable {
+
+    suspend fun addWatch(path: Path): Pair<Deferred<RegisterDirResult>, Deferred<Unit>> {
+        val resDeferred = CompletableDeferred<RegisterDirResult>()
+        val indexDeferred = CompletableDeferred<Unit>()
+        coordinationCh.send(CoordinatorMessage.AddWatch(path, resDeferred, indexDeferred))
+        return Pair(resDeferred, indexDeferred)
+    }
+
+    suspend fun removeWatch(path: Path): Pair<Deferred<UnregisterDirResult>, Deferred<Unit>> {
+        val resDeferred = CompletableDeferred<UnregisterDirResult>()
+        val indexDeferred = CompletableDeferred<Unit>()
+        coordinationCh.send(CoordinatorMessage.RemoveWatch(path, resDeferred, indexDeferred))
+        return Pair(resDeferred, indexDeferred)
+    }
+
+    suspend fun query(q: String): Map<Path, List<TPos>> {
+        val deferred = CompletableDeferred<Map<Path, List<TPos>>>()
+        coordinationCh.send(CoordinatorMessage.Query(q, deferred))
+        return deferred.await()
+    }
+
+    private sealed class CoordinatorMessage {
+        data object WorkerStart : CoordinatorMessage()
+        data object WorkerEnd : CoordinatorMessage()
+        data class Query<TPos>(val q: String, val resultReceiver: CompletableDeferred<Map<Path, List<TPos>>>) :
+            CoordinatorMessage()
+
+        data class AddWatch(
+            val path: Path,
+            val resultReceiver: CompletableDeferred<RegisterDirResult>,
+            val indexFinished: CompletableDeferred<Unit>
+        ) :
+            CoordinatorMessage()
+
+        data class RemoveWatch(
+            val path: Path,
+            val resultReceiver: CompletableDeferred<UnregisterDirResult>,
+            val indexFinished: CompletableDeferred<Unit>
+        ) :
+            CoordinatorMessage()
+    }
+
+    private data class IndexMutation<TPos>(
+        val doc: Path,
+        val newTokens: Map<String, List<TPos>>,
+        val processingFinish: CompletableDeferred<Unit>
+    )
+
+    private val coordinationCh = Channel<CoordinatorMessage>()
+    private val indexes = ConcurrentHashMap<Char, Pair<Channel<IndexMutation<TPos>>, Trie<TPos>>>()
+    private val coordinatorJob: Job
+    private val fileJobs = ConcurrentHashMap<Path, Job>()
+    private val shardJobs = ConcurrentLinkedQueue<Job>()
+    private var pendingQueries = mutableListOf<CoordinatorMessage.Query<TPos>>()
+    private var pendingIndexFinish = mutableListOf<CompletableDeferred<Unit>>()
+
+    @Volatile
+    private var isCancelRequested = false
+
+    // dedicated thread for filesystem events as soon as we block on querying events
+    private val fileWatcher = FileWatcher(
+        { path -> indexDocument(path, scope) },
+        { path -> indexDocument(path, scope) },
+        { path -> deleteDocument(path, scope) },
+        scope
+    )
+
+    init {
+        var busyWorkers = 0
+
+        coordinatorJob = scope.launch(CoroutineName("coordinator")) {
+            while (isActive) {
+                if (coordinationCh.isEmpty && busyWorkers == 0) {
+                    val pending = pendingIndexFinish
+                    pendingIndexFinish = mutableListOf()
+                    for (p in pending) {
+                        p.complete(Unit)
+                    }
+                    val queries = pendingQueries
+                    pendingQueries = mutableListOf()
+                    queries.map { async { queryImpl(it) } }.map { it.await() }
+                }
+                when (val command = coordinationCh.receive()) {
+                    CoordinatorMessage.WorkerStart -> busyWorkers += 1
+                    CoordinatorMessage.WorkerEnd -> busyWorkers -= 1
+
+                    is CoordinatorMessage.Query<*> -> {
+                        @Suppress("UNCHECKED_CAST") // it is always safe because only commands produced by that class can end up here
+                        val query = command as CoordinatorMessage.Query<TPos>
+                        pendingQueries.add(query)
+                    }
+
+                    is CoordinatorMessage.AddWatch -> {
+                        try {
+                            val res = fileWatcher.registerDirTree(command.path)
+                            command.resultReceiver.complete(res)
+                        } catch (e: Exception) {
+                            command.resultReceiver.cancel("exception occurred", e)
+                        } finally {
+                            pendingIndexFinish += command.indexFinished
+                        }
+                    }
+
+                    is CoordinatorMessage.RemoveWatch -> {
+                        try {
+                            val res = fileWatcher.unregisterDirTree(command.path)
+                            command.resultReceiver.complete(res)
+                        } catch (e: Exception) {
+                            command.resultReceiver.cancel("exception occurred", e)
+                        } finally {
+                            pendingIndexFinish += command.indexFinished
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun <T> startWorker(block: suspend () -> T): T {
+        try {
+            coordinationCh.send(CoordinatorMessage.WorkerStart)
+            return block()
+        } finally {
+            coordinationCh.send(CoordinatorMessage.WorkerEnd)
+        }
+    }
+
+    private fun spawnShard(char: Char): Pair<Channel<IndexMutation<TPos>>, Trie<TPos>> {
+        val ch = Channel<IndexMutation<TPos>>()
+        val trie = Trie<TPos>()
+        val job = scope.launch(CoroutineName("'$char' shard")) {
+            // TODO remove old doc tokens first
+            for (p in ch) {
+                for ((token, pos) in p.newTokens) {
+                    trie.insert(token, p.doc, pos)
+                }
+                p.processingFinish.complete(Unit)
+            }
+        }
+        shardJobs.add(job)
+        return Pair(ch, trie)
+    }
+
+    private fun getOrSpawnChannel(char: Char): Channel<IndexMutation<TPos>> {
+        val (ch, _) = indexes.getOrPut(char) { spawnShard(char) }
+        return ch
+    }
+
+    private fun getTrie(char: Char): Trie<TPos>? {
+        val chTrie = indexes.getOrPut(char) { spawnShard(char) }
+        return chTrie?.second
+    }
+
+    private fun indexDocument(path: Path, scope: CoroutineScope) {
+        if (isCancelRequested) {
+            return
+        }
+        val startedJob = scope.launch(CoroutineName("file job $path")) {
+            val thatJob = coroutineContext[Job.Key]
+            coroutineScope {
+                startWorker {
+                    val allTokens = tokenizer.tokens(path.toFile(), this)
+                    allTokens.remove("")
+
+                    val byFirstChar = allTokens.keys.groupBy { it[0] }
+
+                    val notPresentShards = indexes.keys.toMutableSet()
+                    notPresentShards.removeAll(byFirstChar.keys)
+
+                    val deleteAndInsert = byFirstChar.map { (firstChar, tokenList) ->
+                        val tokens2positions = tokenList.associateWith { allTokens[it]!! }
+                        val ch = getOrSpawnChannel(firstChar)
+                        val completed = CompletableDeferred<Unit>()
+                        ch.send(IndexMutation(path, tokens2positions, completed))
+                        completed
+                    }
+                    val delete = notPresentShards.map { c ->
+                        val ch = getOrSpawnChannel(c)
+                        val completed = CompletableDeferred<Unit>()
+                        ch.send(IndexMutation(path, emptyMap(), completed))
+                        completed
+                    }
+                    deleteAndInsert.forEach { it.await() }
+                    delete.forEach { it.await() }
+                }
+                fileJobs.compute(path) { _, job ->
+                    if (job == thatJob) {
+                        job?.cancel()
+                        null
+                    } else {
+                        job
+                    }
+                }
+            }
+        }
+        fileJobs.compute(path) { _, job ->
+            job?.cancel()
+            startedJob
+        }
+    }
+
+    private fun deleteDocument(path: Path, scope: CoroutineScope) {
+        if (isCancelRequested) {
+            return
+        }
+        val startedJob = scope.launch(CoroutineName("file delete $path")) {
+            coroutineScope {
+                startWorker {
+                    val notPresentShards = indexes.keys.toSet()
+                    notPresentShards.map { c ->
+                        val ch = getOrSpawnChannel(c)
+                        val completed = CompletableDeferred<Unit>()
+                        ch.send(IndexMutation(path, emptyMap(), completed))
+                        completed
+                    }.forEach { it.await() }
+                }
+                fileJobs.compute(path) { _, job ->
+                    job?.cancel()
+                    null
+                }
+            }
+        }
+
+        fileJobs.compute(path) { _, job ->
+            job?.cancel()
+            startedJob
+        }
+    }
+
+    private fun queryImpl(queryCommand: CoordinatorMessage.Query<TPos>) {
+        val str = queryCommand.q
+        if (str.isEmpty()) {
+            queryCommand.resultReceiver.cancel()
+            return
+        }
+        val trie = getTrie(str[0])
+        if (trie == null) {
+            queryCommand.resultReceiver.complete(mapOf())
+        } else {
+            val res = trie.getPositions(str)
+            queryCommand.resultReceiver.complete(res)
+        }
+    }
+
+    override fun close() {
+        isCancelRequested = true
+        fileWatcher.close()
+        for (fj in fileJobs.values.toList()) {
+            fj.cancel()
+        }
+
+        for (j in pendingQueries) {
+            j.resultReceiver.cancel()
+        }
+        for (j in pendingIndexFinish) {
+            j.cancel()
+        }
+
+        coordinatorJob.cancel()
+        for ((ch, _) in indexes.values) {
+            ch.close()
+        }
+        for (shardJob in shardJobs.toList()) {
+            shardJob.cancel()
+        }
+    }
+}

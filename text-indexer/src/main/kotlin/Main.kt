@@ -4,7 +4,7 @@ import kotlin.io.path.Path
 import kotlin.system.measureNanoTime
 import kotlin.system.measureTimeMillis
 
-suspend fun <TPos> query(docColl: SingleIndexDocumentCollection<TPos>, q: String) {
+suspend fun <TPos> query(docColl: DocumentCollection<TPos>, q: String) {
     println("querying for \"$q\" ...")
     lateinit var res: Map<Path, List<TPos>>
     val time = measureNanoTime { res = docColl.query(q) }
@@ -27,7 +27,7 @@ fun main() {
     runBlocking {
         coroutineScope {
             withContext(Dispatchers.Default) {
-                SingleIndexDocumentCollection(CaseInsensitiveWordTokenizer(), this).use { docColl ->
+                DocumentCollection(CaseInsensitiveWordTokenizer(), this).use { docColl ->
                     var q = readln()
                     while (true) {
                         when {
@@ -53,7 +53,7 @@ fun main() {
                                 } catch (_: Exception) {
                                 }
                             }
-//
+
                             q.startsWith(REMOVE_WATCH_COMMAND) -> {
                                 val path = q.replace(REMOVE_WATCH_COMMAND, "")
                                 try {
