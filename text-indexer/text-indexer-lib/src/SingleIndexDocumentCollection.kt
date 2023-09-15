@@ -64,6 +64,9 @@ class SingleIndexDocumentCollection<TPos>(private val tokenizer: Tokenizer<TPos>
     private var pendingQueries = mutableListOf<CoordinatorMessage.Query<TPos>>()
     private var pendingIndexFinish = mutableListOf<CompletableDeferred<Unit>>()
 
+    @Volatile
+    private var isCancelRequested = false
+
     // dedicated thread for filesystem events as soon as we block on querying events
     private val fileWatcher = FileWatcher(
         { path -> indexDocument(path, scope) },
@@ -98,15 +101,25 @@ class SingleIndexDocumentCollection<TPos>(private val tokenizer: Tokenizer<TPos>
                     }
 
                     is CoordinatorMessage.AddWatch -> {
-                        val res = fileWatcher.registerDirTree(command.path)
-                        command.resultReceiver.complete(res)
-                        pendingIndexFinish += command.indexFinished
+                        try {
+                            val res = fileWatcher.registerDirTree(command.path)
+                            command.resultReceiver.complete(res)
+                        } catch (e: Exception) {
+                            command.resultReceiver.cancel("exception occurred", e)
+                        } finally {
+                            pendingIndexFinish += command.indexFinished
+                        }
                     }
 
                     is CoordinatorMessage.RemoveWatch -> {
-                        val res = fileWatcher.unregisterDirTree(command.path)
-                        command.resultReceiver.complete(res)
-                        pendingIndexFinish += command.indexFinished
+                        try {
+                            val res = fileWatcher.unregisterDirTree(command.path)
+                            command.resultReceiver.complete(res)
+                        } catch (e: Exception) {
+                            command.resultReceiver.cancel("exception occurred", e)
+                        } finally {
+                            pendingIndexFinish += command.indexFinished
+                        }
                     }
                 }
             }
@@ -149,6 +162,9 @@ class SingleIndexDocumentCollection<TPos>(private val tokenizer: Tokenizer<TPos>
     }
 
     private fun indexDocument(path: Path, scope: CoroutineScope) {
+        if (isCancelRequested) {
+            return
+        }
         val startedJob = scope.launch(CoroutineName("file job $path")) {
             val thatJob = coroutineContext[Job.Key]
             coroutineScope {
@@ -194,6 +210,9 @@ class SingleIndexDocumentCollection<TPos>(private val tokenizer: Tokenizer<TPos>
     }
 
     private fun deleteDocument(path: Path, scope: CoroutineScope) {
+        if (isCancelRequested) {
+            return
+        }
         val startedJob = scope.launch(CoroutineName("file delete $path")) {
             coroutineScope {
                 startWorker {
@@ -234,9 +253,8 @@ class SingleIndexDocumentCollection<TPos>(private val tokenizer: Tokenizer<TPos>
     }
 
     override fun close() {
-        println("cancel requested")
+        isCancelRequested = true
         fileWatcher.close()
-        println("fileJobs: ${fileJobs.size}")
         for (fj in fileJobs.values.toList()) {
             fj.cancel()
         }
@@ -245,7 +263,6 @@ class SingleIndexDocumentCollection<TPos>(private val tokenizer: Tokenizer<TPos>
             j.resultReceiver.cancel()
         }
         for (j in pendingIndexFinish) {
-            println("cancelling indexing")
             j.cancel()
         }
 
@@ -256,8 +273,5 @@ class SingleIndexDocumentCollection<TPos>(private val tokenizer: Tokenizer<TPos>
         for (shardJob in shardJobs.toList()) {
             shardJob.cancel()
         }
-        println("scope: $scope")
-        val childCoroutines = bfs(scope.coroutineContext.job, { it.children.toList() }, { it }).map { it.first }
-        println(childCoroutines.joinToString("\n") { "${(it as CoroutineScope).coroutineContext}" })
     }
 }

@@ -83,13 +83,10 @@ class FileWatcher(
     @OptIn(DelicateCoroutinesApi::class)
     private val fileWatcherContext = newSingleThreadContext("file watcher thread")
     private val watchService: WatchService = FileSystems.getDefault().newWatchService()
-    private val fileWatcherJob: Job = scope.launch(CoroutineName("fileWatcher") + fileWatcherContext) {
-//        coroutineScope {
-//            launch(fileWatcherContext) {
-        watch()
-//            }
-//        }
-    }
+    private val fileWatcherJob: Job = scope.launch(CoroutineName("fileWatcher") + fileWatcherContext) { watch() }
+
+    @Volatile
+    private var isCancelRequested = false
 
     // using concurrent hash map is not necessary in current situation because we always access that maps from single-threaded coroutine context
     // but if is safer to switch now
@@ -160,6 +157,9 @@ class FileWatcher(
                                 subPath: Path,
                                 attrs: BasicFileAttributes
                             ): FileVisitResult {
+                                if (isCancelRequested) {
+                                    return FileVisitResult.TERMINATE
+                                }
                                 val absolute = canonicalizePath(subPath)
                                 return if (directories.containsKey(absolute)) {
                                     FileVisitResult.SKIP_SUBTREE
@@ -170,6 +170,9 @@ class FileWatcher(
                             }
 
                             override fun visitFile(file: Path?, attrs: BasicFileAttributes?): FileVisitResult {
+                                if (isCancelRequested) {
+                                    return FileVisitResult.TERMINATE
+                                }
                                 val absolute = canonicalizePath(file!!)
                                 createFile(absolute)
                                 return FileVisitResult.CONTINUE
@@ -196,9 +199,6 @@ class FileWatcher(
         } else {
             return scope.async {
                 try {
-                    // "watch" coroutine and external call to unregister directory could lead to inconsistent state of `nesting` structure,
-                    // which would result in insufficient unsubscribing from watch
-                    // it would be redone completely with new index structure
                     val nestedItems =
                         bfs(
                             absolutePath,
@@ -267,6 +267,7 @@ class FileWatcher(
     }
 
     override fun close() {
+        isCancelRequested = true
         fileWatcherJob.cancel()
     }
 }
